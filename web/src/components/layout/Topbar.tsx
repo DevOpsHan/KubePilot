@@ -13,6 +13,9 @@ export function Topbar({ alertCount, pendingCount, onSearch }: { alertCount: num
   const { pathname } = useLocation()
   const base = '/' + (pathname.split('/')[1] || 'dashboard')
   const titleKey = viewTitleKeys[base] || 'dashboard'
+  const identityLabel = user
+    ? `${user.username} · ${localizeStatus(t, 'role', user.role)}`
+    : ''
 
   return (
     <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-border bg-card/60 px-6 backdrop-blur">
@@ -21,7 +24,7 @@ export function Topbar({ alertCount, pendingCount, onSearch }: { alertCount: num
         <span className="text-border">/</span>
         <strong className="font-semibold">{t(titleTranslationKeys[titleKey])}</strong>
       </nav>
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+      <div className="flex min-w-0 items-center gap-3 text-xs text-muted-foreground">
         <button onClick={onSearch}
           className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-1.5 transition-colors hover:border-primary hover:text-foreground">
           <Search className="size-3.5" /> {t('topbar.search')}
@@ -32,8 +35,8 @@ export function Topbar({ alertCount, pendingCount, onSearch }: { alertCount: num
         <ThemeSwitcher />
         <LanguageSwitcher />
         {user && (
-          <span className="font-medium text-foreground">
-            {user.username} · {localizeStatus(t, 'role', user.role)}
+          <span title={identityLabel} className="min-w-0 max-w-48 truncate font-medium text-foreground">
+            {identityLabel}
           </span>
         )}
       </div>

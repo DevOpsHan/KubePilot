@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { I18nextProvider } from 'react-i18next'
 import { MemoryRouter } from 'react-router-dom'
@@ -49,7 +49,7 @@ async function renderTopbar(language: SupportedLanguage) {
     </I18nextProvider>
   )
   const view = render(createContent())
-  return { ...view, rerenderTopbar: () => view.rerender(createContent()) }
+  return { ...view, i18n, rerenderTopbar: () => view.rerender(createContent()) }
 }
 
 async function renderSidebar(language: SupportedLanguage) {
@@ -100,6 +100,34 @@ describe('布局登录身份展示', () => {
     await renderTopbar('zh')
 
     expect(screen.getByText('admin · 全局管理员')).toBeInTheDocument()
+  })
+
+  it('同一顶栏实例随界面语言切换更新角色', async () => {
+    const { i18n } = await renderTopbar('zh')
+
+    expect(screen.getByText('admin · 全局管理员')).toBeInTheDocument()
+    await act(async () => { await i18n.changeLanguage('en') })
+    expect(screen.getByText('admin · Global admin')).toBeInTheDocument()
+    await act(async () => { await i18n.changeLanguage('zh') })
+    expect(screen.getByText('admin · 全局管理员')).toBeInTheDocument()
+  })
+
+  it('未知角色保留后端原值', async () => {
+    setAuthenticatedUser({ username: 'sam', role: 'custom_operator' })
+    await renderTopbar('en')
+
+    expect(screen.getByText('sam · custom_operator')).toBeInTheDocument()
+  })
+
+  it('长用户名受限并保留完整身份提示', async () => {
+    const username = 'a'.repeat(64)
+    const identity = `${username} · Global admin`
+    setAuthenticatedUser({ username, role: 'global_admin' })
+    await renderTopbar('en')
+
+    const identityNode = screen.getByTitle(identity)
+    expect(identityNode).toHaveTextContent(identity)
+    expect(identityNode).toHaveClass('max-w-48', 'truncate')
   })
 
   it('侧栏仅保留退出登录命令', async () => {
