@@ -82,7 +82,7 @@ cd KubePilot
 docker compose up --build -d
 ```
 
-该命令会构建 KubePilot Console 和 KubePilot Core 镜像，并启动以下服务：
+该命令会构建 `kubepilot-console:v0.1` 和 `kubepilot-core:v0.1`，并启动以下服务：
 
 - MySQL 8.4：业务数据和资源缓存
 - Redis 7：会话与对话短期记忆
@@ -312,7 +312,7 @@ export AIOPS_SECRET_KEY="$(openssl rand -hex 16)"
 `config.example.yaml` 默认使用 SQLite，并要求本机 Redis 位于 `localhost:6379`。启动 KubePilot Core：
 
 ```bash
-go run ./cmd/aiops-agent
+go run ./cmd/kubepilot-core
 ```
 
 健康检查：
@@ -375,7 +375,7 @@ Compose 检查：
 docker compose config --quiet
 node scripts/check-compose-security.mjs
 docker compose build
-node scripts/check-docker-secret.mjs kubepilot-core:local
+node scripts/check-docker-secret.mjs kubepilot-core:v0.1
 ```
 
 ## 常见问题
@@ -405,7 +405,7 @@ docker compose logs --tail=200 mysql redis core console
 ## 目录结构
 
 ```text
-cmd/aiops-agent/          服务入口
+cmd/kubepilot-core/       KubePilot Core 服务入口
 cmd/dbmigrate/            SQLite 到 MySQL 一次性迁移工具
 internal/app/             应用装配
 internal/config/          配置加载

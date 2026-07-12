@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 
-const image = process.argv[2] ?? 'kubepilot-core:local'
+const image = process.argv[2] ?? 'kubepilot-core:v0.1'
 const volume = `kubepilot-secret-check-${randomUUID()}`
 const container = `${volume}-container`
 

@@ -10,7 +10,7 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/aiops-agent ./cmd/aiops-agent
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/kubepilot-core ./cmd/kubepilot-core
 
 FROM alpine:3.22
 
@@ -20,7 +20,7 @@ RUN apk add --no-cache ca-certificates tzdata \
 
 WORKDIR /app
 
-COPY --from=builder /out/aiops-agent /usr/local/bin/aiops-agent
+COPY --from=builder /out/kubepilot-core /usr/local/bin/kubepilot-core
 COPY config.docker.yaml /app/config.yaml
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
@@ -35,4 +35,4 @@ ENV AIOPS_CONFIG=/app/config.yaml
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["/usr/local/bin/aiops-agent"]
+CMD ["/usr/local/bin/kubepilot-core"]

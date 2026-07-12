@@ -1,4 +1,4 @@
-# AIOps Agent 配置示例
+# KubePilot Core 配置示例
 # 复制本文件为 config.yaml 后填写真实值(config.yaml 已被 .gitignore 忽略,不会进 git)
 # ⚠️ 真实密钥请填到 config.yaml,不要填在本示例文件!
 

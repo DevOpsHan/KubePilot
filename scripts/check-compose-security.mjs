@@ -48,8 +48,8 @@ for (const serviceName of ['mysql', 'redis', 'core']) {
 }
 
 const consoleService = config.services.console
-if (consoleService.image !== 'kubepilot-console:local') {
-  fail('console 必须使用 kubepilot-console:local 镜像')
+if (consoleService.image !== 'kubepilot-console:v0.1') {
+  fail('console 必须使用 kubepilot-console:v0.1 镜像')
 }
 
 const consolePorts = consoleService.ports ?? []
@@ -64,8 +64,8 @@ if (String(consolePort.published) !== '5174' || consolePort.target !== 80) {
 }
 
 const coreService = config.services.core
-if (coreService.image !== 'kubepilot-core:local') {
-  fail('core 必须使用 kubepilot-core:local 镜像')
+if (coreService.image !== 'kubepilot-core:v0.1') {
+  fail('core 必须使用 kubepilot-core:v0.1 镜像')
 }
 if (coreService.environment?.AIOPS_SECRET_KEY) {
   fail('core 不应内置固定 AIOPS_SECRET_KEY')

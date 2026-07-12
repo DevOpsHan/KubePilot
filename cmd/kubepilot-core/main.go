@@ -60,7 +60,7 @@ func main() {
 	}
 
 	go func() {
-		logger.Info("AIOps Agent 启动", zap.String("addr", cfg.Server.HTTPAddr))
+		logger.Info("KubePilot Core 启动", zap.String("addr", cfg.Server.HTTPAddr))
 		if err := application.Server.Echo().Start(cfg.Server.HTTPAddr); err != nil {
 			logger.Info("HTTP 服务已停止", zap.Error(err))
 		}

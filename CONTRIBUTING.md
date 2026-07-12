@@ -65,7 +65,7 @@ Compose：
 docker compose config --quiet
 node scripts/check-compose-security.mjs
 docker compose build
-node scripts/check-docker-secret.mjs kubepilot-core:local
+node scripts/check-docker-secret.mjs kubepilot-core:v0.1
 ```
 
 涉及镜像、端口、环境变量、健康检查或启动顺序时，还必须在隔离环境中实际启动四个服务并验证 KubePilot Console 与 Core 健康接口。

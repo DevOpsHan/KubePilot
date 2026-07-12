@@ -13,5 +13,5 @@ web/node_modules
 
 build
 bin
-aiops-agent
-aiops-agent.exe
+kubepilot-core
+kubepilot-core.exe

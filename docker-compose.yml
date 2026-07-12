@@ -37,7 +37,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: kubepilot-core:local
+    image: kubepilot-core:v0.1
     restart: unless-stopped
     depends_on:
       mysql:
@@ -65,7 +65,7 @@ services:
     build:
       context: .
       dockerfile: web/Dockerfile
-    image: kubepilot-console:local
+    image: kubepilot-console:v0.1
     restart: unless-stopped
     depends_on:
       core:

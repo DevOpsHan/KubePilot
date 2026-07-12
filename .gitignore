@@ -9,8 +9,8 @@ config.preview.yaml
 # 编译产物
 /build/
 /bin/
-/aiops-agent
-/aiops-agent.exe
+/kubepilot-core
+/kubepilot-core.exe
 /web/dist/
 
 # Git 工作树目录

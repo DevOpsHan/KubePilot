@@ -82,7 +82,7 @@ Build and start all services with one command:
 docker compose up --build -d
 ```
 
-This command builds the KubePilot Console and KubePilot Core images and starts the following services:
+This command builds `kubepilot-console:v0.1` and `kubepilot-core:v0.1`, then starts the following services:
 
 - MySQL 8.4 for business data and resource caching
 - Redis 7 for sessions and short-term conversation memory
@@ -302,7 +302,7 @@ export AIOPS_SECRET_KEY="$(openssl rand -hex 16)"
 `config.example.yaml` uses SQLite by default and expects Redis at `localhost:6379`. Start KubePilot Core:
 
 ```bash
-go run ./cmd/aiops-agent
+go run ./cmd/kubepilot-core
 ```
 
 Check KubePilot Core health:
@@ -365,7 +365,7 @@ Compose checks:
 docker compose config --quiet
 node scripts/check-compose-security.mjs
 docker compose build
-node scripts/check-docker-secret.mjs kubepilot-core:local
+node scripts/check-docker-secret.mjs kubepilot-core:v0.1
 ```
 
 ## Troubleshooting
@@ -394,7 +394,7 @@ KubePilot intentionally preserves the latest successful snapshot. The page simul
 ## Project Structure
 
 ```text
-cmd/aiops-agent/          Service entry point
+cmd/kubepilot-core/       KubePilot Core entry point
 cmd/dbmigrate/            One-time SQLite-to-MySQL migration tool
 internal/app/             Application assembly
 internal/config/          Configuration loading

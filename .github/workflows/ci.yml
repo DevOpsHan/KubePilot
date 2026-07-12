@@ -92,7 +92,7 @@ jobs:
         run: docker compose up --build -d --wait --wait-timeout 180
 
       - name: 验证镜像密钥持久化
-        run: node scripts/check-docker-secret.mjs kubepilot-core:local
+        run: node scripts/check-docker-secret.mjs kubepilot-core:v0.1
 
       - name: 验证页面、健康接口与默认登录
         run: |
