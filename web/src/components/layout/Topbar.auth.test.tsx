@@ -58,7 +58,8 @@ describe('Topbar 与认证上下文集成', () => {
     const user = userEvent.setup()
     await renderAuthenticatedTopbar()
 
-    expect(await screen.findByText('admin · Global admin')).toBeInTheDocument()
+    expect(await screen.findByText('admin')).toBeInTheDocument()
+    expect(screen.queryByText(/Global admin/u)).not.toBeInTheDocument()
 
     apiMocks.getCurrentUser.mockResolvedValueOnce({
       user: { username: 'ops', display_name: '集群运维员', role: 'cluster_admin' },
@@ -66,7 +67,8 @@ describe('Topbar 与认证上下文集成', () => {
     })
     await user.click(screen.getByRole('button', { name: '刷新身份' }))
 
-    expect(await screen.findByText('ops · Cluster admin')).toBeInTheDocument()
-    expect(screen.queryByText('admin · Global admin')).not.toBeInTheDocument()
+    expect(await screen.findByText('ops')).toBeInTheDocument()
+    expect(screen.queryByText('admin')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Cluster admin/u)).not.toBeInTheDocument()
   })
 })

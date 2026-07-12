@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { I18nextProvider } from 'react-i18next'
 import { MemoryRouter } from 'react-router-dom'
@@ -75,14 +75,15 @@ beforeEach(() => {
 })
 
 describe('布局登录身份展示', () => {
-  it('英文顶栏使用用户名和本地化角色，不显示中文用户资料', async () => {
+  it('英文顶栏只显示用户名，不显示角色或姓名', async () => {
     await renderTopbar('en')
 
-    expect(screen.getByText('admin · Global admin')).toBeInTheDocument()
+    expect(screen.getByText('admin')).toBeInTheDocument()
+    expect(screen.queryByText(/Global admin/u)).not.toBeInTheDocument()
     expect(screen.queryByText('系统管理员')).not.toBeInTheDocument()
   })
 
-  it('认证用户变化后同步更新顶栏账号和权限', async () => {
+  it('认证用户变化后只同步更新顶栏用户名', async () => {
     const view = await renderTopbar('en')
 
     setAuthenticatedUser({
@@ -92,41 +93,25 @@ describe('布局登录身份展示', () => {
     })
     view.rerenderTopbar()
 
-    expect(screen.queryByText('admin · Global admin')).not.toBeInTheDocument()
-    expect(screen.getByText('ops · Cluster admin')).toBeInTheDocument()
+    expect(screen.queryByText('admin')).not.toBeInTheDocument()
+    expect(screen.getByText('ops')).toBeInTheDocument()
+    expect(screen.queryByText(/Cluster admin/u)).not.toBeInTheDocument()
   })
 
-  it('中文顶栏使用用户名和中文角色', async () => {
+  it('中文顶栏同样只显示用户名', async () => {
     await renderTopbar('zh')
 
-    expect(screen.getByText('admin · 全局管理员')).toBeInTheDocument()
+    expect(screen.getByText('admin')).toBeInTheDocument()
+    expect(screen.queryByText(/全局管理员/u)).not.toBeInTheDocument()
   })
 
-  it('同一顶栏实例随界面语言切换更新角色', async () => {
-    const { i18n } = await renderTopbar('zh')
-
-    expect(screen.getByText('admin · 全局管理员')).toBeInTheDocument()
-    await act(async () => { await i18n.changeLanguage('en') })
-    expect(screen.getByText('admin · Global admin')).toBeInTheDocument()
-    await act(async () => { await i18n.changeLanguage('zh') })
-    expect(screen.getByText('admin · 全局管理员')).toBeInTheDocument()
-  })
-
-  it('未知角色保留后端原值', async () => {
-    setAuthenticatedUser({ username: 'sam', role: 'custom_operator' })
-    await renderTopbar('en')
-
-    expect(screen.getByText('sam · custom_operator')).toBeInTheDocument()
-  })
-
-  it('长用户名受限并保留完整身份提示', async () => {
+  it('长用户名受限并保留完整用户名提示', async () => {
     const username = 'a'.repeat(64)
-    const identity = `${username} · Global admin`
     setAuthenticatedUser({ username, role: 'global_admin' })
     await renderTopbar('en')
 
-    const identityNode = screen.getByTitle(identity)
-    expect(identityNode).toHaveTextContent(identity)
+    const identityNode = screen.getByTitle(username)
+    expect(identityNode).toHaveTextContent(username)
     expect(identityNode).toHaveClass('max-w-48', 'truncate')
   })
 

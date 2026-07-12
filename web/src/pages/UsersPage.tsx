@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RotateCw, Plus } from 'lucide-react'
 import {
@@ -55,6 +55,15 @@ function StatusPill({ u, text }: { u: any; text: string }) {
   const tone = statusTone(u)
   const map = { success: 'bg-success-weak text-success-fg', warning: 'bg-warning-weak text-warning-fg', muted: 'bg-muted text-muted-foreground' }
   return <span className={cn('inline-block rounded-full px-2 py-0.5 text-[11px] font-medium', map[tone])}>{text}</span>
+}
+
+function RequiredFieldLabel({ children }: { children: ReactNode }) {
+  return (
+    <Label>
+      {children}
+      <span aria-hidden="true" className="text-destructive" data-required-marker="true"> *</span>
+    </Label>
+  )
 }
 
 type UserValidationKey =
@@ -283,7 +292,7 @@ export function UsersPage() {
         <SheetContent className="flex w-full flex-col gap-0 sm:max-w-md">
           <SheetHeader><SheetTitle>{tSettings('users.createDrawer.title')}</SheetTitle><SheetDescription>{tSettings('users.createDrawer.description')}</SheetDescription></SheetHeader>
           <div className="flex-1 space-y-4 overflow-y-auto px-4 py-2">
-            <div className="space-y-1.5"><Label>{tSettings('users.fields.username')}</Label><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder={tSettings('users.placeholders.username')} /></div>
+            <div className="space-y-1.5"><RequiredFieldLabel>{tSettings('users.fields.username')}</RequiredFieldLabel><Input required value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder={tSettings('users.placeholders.username')} /></div>
             <div className="space-y-1.5"><Label>{tSettings('users.fields.name')}</Label><Input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} placeholder={tSettings('users.placeholders.name')} /></div>
             <div className="space-y-1.5"><Label>{tSettings('users.fields.email')}</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder={tSettings('users.placeholders.email')} /></div>
             <div className="grid grid-cols-2 gap-3">
@@ -302,8 +311,8 @@ export function UsersPage() {
             </div>
             {formNeedsClusters && (
               <div className="space-y-2">
-                <Label>{tSettings('users.fields.clusters')}</Label>
-                <div className="grid grid-cols-2 gap-2 rounded-lg border border-border p-3">
+                <RequiredFieldLabel>{tSettings('users.fields.clusters')}</RequiredFieldLabel>
+                <div role="group" aria-label={tSettings('users.fields.clusters')} aria-required="true" className="grid grid-cols-2 gap-2 rounded-lg border border-border p-3">
                   {clusters.map((c) => (
                     <label key={c.id} className="flex cursor-pointer items-center gap-2 text-sm">
                       <Checkbox checked={form.clusterIds.includes(String(c.id))} onCheckedChange={() => toggleFormCluster(String(c.id))} />
@@ -329,13 +338,13 @@ export function UsersPage() {
           <SheetHeader><SheetTitle>{tSettings('users.editDrawer.title')}</SheetTitle><SheetDescription>{editing && `${userCode(editing)} · ${editing.username} · ${roleText(editing.role)}`}</SheetDescription></SheetHeader>
           {editing && (
             <div className="flex-1 space-y-4 overflow-y-auto px-4 py-2">
-              <div className="space-y-1.5"><Label>{tSettings('users.fields.requiredName')}</Label><Input value={editForm.displayName} onChange={(e) => setEditForm({ ...editForm, displayName: e.target.value })} /></div>
+              <div className="space-y-1.5"><RequiredFieldLabel>{tSettings('users.fields.name')}</RequiredFieldLabel><Input required value={editForm.displayName} onChange={(e) => setEditForm({ ...editForm, displayName: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>{tSettings('users.fields.email')}</Label><Input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} placeholder={tSettings('users.placeholders.editEmail')} /></div>
-              <div className="space-y-1.5"><Label>{tSettings('users.fields.expiresAt')}</Label><Input type="date" value={editForm.expiresAt} onChange={(e) => setEditForm({ ...editForm, expiresAt: e.target.value })} /></div>
+              <div className="space-y-1.5"><RequiredFieldLabel>{tSettings('users.fields.expiresAt')}</RequiredFieldLabel><Input required type="date" value={editForm.expiresAt} onChange={(e) => setEditForm({ ...editForm, expiresAt: e.target.value })} /></div>
               {editingNeedsClusters && (
                 <div className="space-y-2">
-                  <Label>{tSettings('users.fields.clusters')}</Label>
-                  <div className="grid grid-cols-2 gap-2 rounded-lg border border-border p-3">
+                  <RequiredFieldLabel>{tSettings('users.fields.clusters')}</RequiredFieldLabel>
+                  <div role="group" aria-label={tSettings('users.fields.clusters')} aria-required="true" className="grid grid-cols-2 gap-2 rounded-lg border border-border p-3">
                     {clusters.map((c) => (
                       <label key={c.id} className="flex cursor-pointer items-center gap-2 text-sm">
                         <Checkbox checked={editForm.clusterIds.includes(String(c.id))} onCheckedChange={() => toggleEditCluster(String(c.id))} />

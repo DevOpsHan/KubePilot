@@ -360,6 +360,15 @@ describe('巡检设置国际化', () => {
 })
 
 describe('用户管理国际化', () => {
+  function expectRedRequiredMarker(container: HTMLElement, labelText: string) {
+    const label = Array.from(container.querySelectorAll('label'))
+      .find((candidate) => candidate.textContent?.includes(labelText))
+    expect(label, `未找到字段标签：${labelText}`).toBeDefined()
+    const marker = label?.querySelector('[data-required-marker="true"]')
+    expect(marker).toHaveTextContent('*')
+    expect(marker).toHaveClass('text-destructive')
+  }
+
   it('切换语言时重译角色、状态和日期并保留用户与集群原始值', async () => {
     const i18n = await renderPage(<UsersPage />)
 
@@ -398,6 +407,26 @@ describe('用户管理国际化', () => {
       expect(within(dialog).getByRole('heading', { name: 'Add user' })).toBeInTheDocument()
       expect(within(dialog).getByRole('button', { name: 'Create user' })).toBeInTheDocument()
     })
+  })
+
+  it('新增和编辑用户抽屉使用红色星号标记必填项', async () => {
+    const user = userEvent.setup()
+    await renderPage(<UsersPage />)
+    await screen.findByRole('heading', { name: '用户管理' })
+
+    await user.click(screen.getByRole('button', { name: '新增用户' }))
+    const createDialog = await screen.findByRole('dialog')
+    expectRedRequiredMarker(createDialog, '用户名')
+    expectRedRequiredMarker(createDialog, '授权集群')
+
+    await user.click(within(createDialog).getByRole('button', { name: '取消' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: '编辑' }))
+    const editDialog = await screen.findByRole('dialog')
+    expectRedRequiredMarker(editDialog, '姓名')
+    expectRedRequiredMarker(editDialog, '失效日期')
+    expectRedRequiredMarker(editDialog, '授权集群')
   })
 
   it('英文确认框包含原始用户名，并精确本地化管理员保护错误', async () => {

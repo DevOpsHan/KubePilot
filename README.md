@@ -56,7 +56,7 @@ The sidebar and command palette are permission-aware. Users see only the entries
 - **Alerts / Pending**: shows the current active-alert and pending-approval counters, refreshed every 30 seconds.
 - **Theme**: switches the interface theme.
 - **ZH / EN**: switches the complete application interface between Simplified Chinese and English.
-- **Signed-in account**: displays `username · localized role` for the authenticated user and updates when the account changes.
+- **Signed-in account**: displays only the authenticated username in the top-right corner and updates when the account changes.
 
 ## Installation and Startup
 

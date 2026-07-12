@@ -5,7 +5,6 @@ import { titleTranslationKeys, viewTitleKeys } from './nav'
 import { useAuth } from '@/providers/AuthProvider'
 import { ThemeSwitcher } from '@/components/ThemeSwitcher'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
-import { localizeStatus } from '@/i18n/status'
 
 export function Topbar({ alertCount, pendingCount, onSearch }: { alertCount: number; pendingCount: number; onSearch: () => void }) {
   const { user } = useAuth()
@@ -13,9 +12,7 @@ export function Topbar({ alertCount, pendingCount, onSearch }: { alertCount: num
   const { pathname } = useLocation()
   const base = '/' + (pathname.split('/')[1] || 'dashboard')
   const titleKey = viewTitleKeys[base] || 'dashboard'
-  const identityLabel = user
-    ? `${user.username} · ${localizeStatus(t, 'role', user.role)}`
-    : ''
+  const identityLabel = user?.username ?? ''
 
   return (
     <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-border bg-card/60 px-6 backdrop-blur">
