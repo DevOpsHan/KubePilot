@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: 检出代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 配置 Go
         uses: actions/setup-go@v6
@@ -45,7 +45,7 @@ jobs:
         working-directory: web
     steps:
       - name: 检出代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 配置 Node.js
         uses: actions/setup-node@v6
@@ -75,7 +75,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: 检出代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 配置 Node.js
         uses: actions/setup-node@v6
