@@ -36,7 +36,6 @@ export const zhCommon = {
   },
   sidebar: {
     tagline: 'Kubernetes 智能运维',
-    currentUser: '当前用户',
     logout: '退出登录',
   },
   confirm: {

@@ -42,7 +42,7 @@ function CountBadge({ n }: { n: number }) {
 }
 
 export function Sidebar({ alertCount, pendingCount }: { alertCount: number; pendingCount: number }) {
-  const { user, can, logout } = useAuth()
+  const { can, logout } = useAuth()
   const { t } = useTranslation('common')
   const { pathname } = useLocation()
 
@@ -131,16 +131,8 @@ export function Sidebar({ alertCount, pendingCount }: { alertCount: number; pend
         {navGroups.map(renderGroup)}
       </nav>
 
-      {/* 底部:用户 + 退出(主题切换已移至顶栏) */}
-      <div className="space-y-2 border-t border-sidebar-border p-3">
-        {user && (
-          <div className="rounded-lg bg-sidebar-accent/40 px-3 py-2">
-            <div className="text-[11px] text-muted-foreground">{t('sidebar.currentUser')}</div>
-            <div className="truncate text-sm font-semibold text-sidebar-foreground">{user.display_name || user.username}</div>
-            <div className="truncate text-[11px] text-muted-foreground">{user.role}</div>
-          </div>
-        )}
-
+      {/* 底部仅保留退出命令,当前身份统一在顶栏展示。 */}
+      <div className="border-t border-sidebar-border p-3">
         <button onClick={logout}
           className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive">
           <LogOut className="size-4" /> {t('sidebar.logout')}

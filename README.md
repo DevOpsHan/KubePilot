@@ -48,7 +48,7 @@ The sidebar and command palette are permission-aware. Users see only the entries
 - **Audit** (`/audit`): centralizes platform operation records and supports filtering by cluster, user, action, and time.
 - **Inspection Settings** (`/inspection-settings`): configures built-in and custom inspection rules, inheritance and enablement, Prometheus connectivity, and custom PromQL validation.
 - **Users** (`/users`): manages users, roles, cluster grants, account expiration and status, password resets, and soft deletion.
-- **Current account / Log out**: identifies the active account and securely ends the current session.
+- **Log out**: securely ends the current session from the bottom of the sidebar.
 
 ### Header Controls
 
@@ -56,7 +56,7 @@ The sidebar and command palette are permission-aware. Users see only the entries
 - **Alerts / Pending**: shows the current active-alert and pending-approval counters, refreshed every 30 seconds.
 - **Theme**: switches the interface theme.
 - **ZH / EN**: switches the complete application interface between Simplified Chinese and English.
-- **Account name**: displays the identity currently signed in.
+- **Signed-in account**: displays `username · localized role` for the authenticated user and updates when the account changes.
 
 ## Installation and Startup
 

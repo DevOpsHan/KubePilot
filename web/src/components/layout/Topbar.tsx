@@ -5,6 +5,7 @@ import { titleTranslationKeys, viewTitleKeys } from './nav'
 import { useAuth } from '@/providers/AuthProvider'
 import { ThemeSwitcher } from '@/components/ThemeSwitcher'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
+import { localizeStatus } from '@/i18n/status'
 
 export function Topbar({ alertCount, pendingCount, onSearch }: { alertCount: number; pendingCount: number; onSearch: () => void }) {
   const { user } = useAuth()
@@ -30,7 +31,11 @@ export function Topbar({ alertCount, pendingCount, onSearch }: { alertCount: num
         <span className="hidden sm:inline">{t('topbar.pending')} {pendingCount}</span>
         <ThemeSwitcher />
         <LanguageSwitcher />
-        <span className="font-medium text-foreground">{user?.display_name || user?.username}</span>
+        {user && (
+          <span className="font-medium text-foreground">
+            {user.username} · {localizeStatus(t, 'role', user.role)}
+          </span>
+        )}
       </div>
     </header>
   )

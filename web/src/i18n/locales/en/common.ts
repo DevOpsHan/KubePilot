@@ -39,7 +39,6 @@ export const enCommon = {
   },
   sidebar: {
     tagline: 'Kubernetes AIOps',
-    currentUser: 'Current user',
     logout: 'Log out',
   },
   confirm: {
