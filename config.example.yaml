@@ -1,0 +1,60 @@
+# AIOps Agent 配置示例
+# 复制本文件为 config.yaml 后填写真实值(config.yaml 已被 .gitignore 忽略,不会进 git)
+# ⚠️ 真实密钥请填到 config.yaml,不要填在本示例文件!
+
+server:
+  http_addr: ":8080"
+
+kubernetes:
+  kubeconfig: ""
+  namespaces: []
+
+# Prometheus 接入(可选):作为巡检指标规则的数据源(节点 CPU/内存阈值告警,
+# 需目标集群部署 node_exporter)。配置后在「巡检设置」页启用 NodeHighCPU/NodeHighMemory 规则。
+# 也可用环境变量 AIOPS_PROMETHEUS_URL 覆盖。
+prometheus:
+  url: ""
+
+database:
+  driver: "sqlite"
+  dsn: "aiops.db"
+
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+
+# 集群资源自动同步:默认启用
+# 启动 30 秒后首次同步,之后每 300 秒同步一次所有已接入集群
+# 可用环境变量 AIOPS_SYNC_ENABLED=false 临时关闭
+sync:
+  enabled: true
+  interval_seconds: 300
+  initial_delay_seconds: 30
+
+# 定时巡检:默认启用。启动 60 秒后首次巡检,之后每 600 秒对所有已接入集群跑一次规则巡检,
+# 把异常沉淀为「告警」(只跑规则、不调用大模型、不烧 token);异常消失即自动恢复。
+# 可用环境变量 AIOPS_INSPECTION_ENABLED=false 临时关闭。
+inspection:
+  enabled: true
+  interval_seconds: 600
+  initial_delay_seconds: 60
+
+# 自动修复:enabled 控制是否开放写操作
+# ⚠️ 所有写操作都需人工审批后才会执行
+remediation:
+  enabled: true
+
+# 外部通知:巡检产出「新增/恢复」告警时,推送到钉钉/企业微信群机器人(默认关闭)。
+# 配置任一 webhook 即视为启用;也可用环境变量覆盖:
+#   AIOPS_DINGTALK_WEBHOOK / AIOPS_DINGTALK_SECRET / AIOPS_WECOM_WEBHOOK
+#   AIOPS_NOTIFY_MIN_SEVERITY=critical(只推严重)/ AIOPS_NOTIFY_RESOLVED=false(不推恢复)
+notification:
+  enabled: false
+  min_severity: "warning"   # warning=严重+警告都推;critical=只推严重
+  notify_resolved: true     # 是否推送告警恢复通知
+  dingtalk:
+    webhook_url: ""
+    secret: ""              # 加签密钥(SEC 开头);留空则不加签
+  wecom:
+    webhook_url: ""

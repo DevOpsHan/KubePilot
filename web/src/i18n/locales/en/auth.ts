@@ -1,0 +1,43 @@
+import type { LocaleShape } from '../../types'
+import type { zhAuth } from '../zh/auth'
+
+export const enAuth = {
+  login: {
+    tagline: 'Kubernetes AIOps Platform',
+    username: 'Username',
+    usernamePlaceholder: 'Enter username',
+    password: 'Password',
+    passwordPlaceholder: 'Enter password',
+    signIn: 'Sign in',
+    signingIn: 'Signing in…',
+    signInFailed: 'Sign-in failed',
+    fillBoth: 'Please enter username and password',
+    changeHint: 'You must change the initial password on first sign-in.',
+    newPassword: 'New password',
+    newPasswordPlaceholder: 'At least 6 characters',
+    confirmPassword: 'Confirm new password',
+    changeSubmit: 'Change & sign in',
+    changing: 'Submitting…',
+    changeFailed: 'Failed to change password',
+    passwordResetNotice: 'Your administrator password was reset to k8s@ops123. Sign in again and change it.',
+    needBoth: 'Please enter and confirm the new password',
+    mismatch: 'The two passwords do not match',
+    sameAsOld: 'New password must differ from the current one',
+    badge: 'Enterprise Kubernetes AIOps',
+    headline1: 'Make every op',
+    headline2: 'AI-driven',
+    subtitle: 'Multi-cluster · Auto inspection · AI diagnosis · Approvals · Audit trail',
+    feat1Title: 'Unified multi-cluster',
+    feat1Desc: 'Real-time resource & status sync',
+    feat2Title: 'One-click inspection',
+    feat2Desc: 'AI root-cause & fix suggestions',
+    feat3Title: 'Approval + audit loop',
+    feat3Desc: 'Risky ops controlled & traceable',
+  },
+  session: {
+    title: 'Session expired',
+    relogin: 'Sign in again',
+    idle: 'You were signed out after 30 minutes of inactivity. Please sign in again.',
+    unauthorized: 'Your session has expired. Please sign in again.',
+  },
+} as const satisfies LocaleShape<typeof zhAuth>
