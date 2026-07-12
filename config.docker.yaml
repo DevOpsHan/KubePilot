@@ -1,0 +1,44 @@
+# Docker Compose 默认配置。
+# 模型配置不写入本文件，服务启动后请在前端“智能助手”中添加模型。
+server:
+  http_addr: ":8080"
+
+kubernetes:
+  kubeconfig: ""
+  namespaces: []
+
+prometheus:
+  url: ""
+
+database:
+  driver: "mysql"
+  dsn: "aiops:aiops_dev_pw@tcp(mysql:3306)/aiops?charset=utf8mb4&parseTime=True&loc=Local"
+
+redis:
+  addr: "redis:6379"
+  password: ""
+  db: 0
+
+sync:
+  enabled: true
+  interval_seconds: 300
+  initial_delay_seconds: 30
+
+inspection:
+  enabled: true
+  interval_seconds: 600
+  initial_delay_seconds: 60
+
+remediation:
+  enabled: true
+
+# 外部通知(默认关闭);可用环境变量覆盖 AIOPS_DINGTALK_WEBHOOK / AIOPS_WECOM_WEBHOOK 等
+notification:
+  enabled: false
+  min_severity: "warning"
+  notify_resolved: true
+  dingtalk:
+    webhook_url: ""
+    secret: ""
+  wecom:
+    webhook_url: ""

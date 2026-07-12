@@ -1,0 +1,264 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================================
+   设计令牌 —— 从旧 Vue 前端 tokens.css 1:1 迁移的靛蓝 SaaS 主题
+   亮色默认;.dark 切暗色。映射到 shadcn 语义变量。
+   ============================================================ */
+:root {
+  --radius: 0.75rem; /* 12px = 旧 --radius-md */
+
+  --background: #f7f8fb;
+  --foreground: #0e1117;
+  --card: #ffffff;
+  --card-foreground: #0e1117;
+  --popover: #ffffff;
+  --popover-foreground: #0e1117;
+
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+
+  --secondary: #f5f6fa;
+  --secondary-foreground: #0e1117;
+  --muted: #f5f6fa;
+  --muted-foreground: #5c6675;
+  --accent: #eef2ff;
+  --accent-foreground: #3730a3;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+
+  --border: #e8eaf1;
+  --input: #e8eaf1;
+  --ring: #4f46e5;
+
+  --success: #10b981;
+  --success-weak: #ecfdf5;
+  --success-fg: #047857;
+  --warning: #f59e0b;
+  --warning-weak: #fffbeb;
+  --warning-fg: #b45309;
+  --danger: #ef4444;
+  --danger-weak: #fef2f2;
+  --danger-fg: #b91c1c;
+  --info: #3b82f6;
+  --info-weak: #eff6ff;
+  --info-fg: #1d4ed8;
+
+  --surface-soft: #f5f6fa;
+  --surface-2: #eef0f6;
+  --border-strong: #d5d9e4;
+  --text-muted: #5c6675;
+  --text-subtle: #8b93a3;
+  --gradient-brand: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0e1117;
+  --sidebar-primary: #4f46e5;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef2ff;
+  --sidebar-accent-foreground: #3730a3;
+  --sidebar-border: #e8eaf1;
+  --sidebar-ring: #4f46e5;
+
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+
+  color-scheme: light;
+}
+
+.dark {
+  --background: #0a0b0f;
+  --foreground: #f1f2f5;
+  --card: #121419;
+  --card-foreground: #f1f2f5;
+  --popover: #121419;
+  --popover-foreground: #f1f2f5;
+
+  --primary: #818cf8;
+  --primary-foreground: #0a0b0f;
+
+  --secondary: #171a21;
+  --secondary-foreground: #f1f2f5;
+  --muted: #171a21;
+  --muted-foreground: #9aa1b1;
+  --accent: rgba(129, 140, 248, 0.15);
+  --accent-foreground: #a5b4fc;
+  --destructive: #f87171;
+  --destructive-foreground: #0a0b0f;
+
+  --border: #23262f;
+  --input: #2a2e39;
+  --ring: #818cf8;
+
+  --success: #34d399;
+  --success-weak: rgba(52, 211, 153, 0.15);
+  --success-fg: #6ee7b7;
+  --warning: #fbbf24;
+  --warning-weak: rgba(251, 191, 36, 0.15);
+  --warning-fg: #fcd34d;
+  --danger: #f87171;
+  --danger-weak: rgba(248, 113, 113, 0.15);
+  --danger-fg: #fca5a5;
+  --info: #60a5fa;
+  --info-weak: rgba(96, 165, 250, 0.15);
+  --info-fg: #93c5fd;
+
+  --surface-soft: #171a21;
+  --surface-2: #1c1f29;
+  --border-strong: #343845;
+  --text-muted: #9aa1b1;
+  --text-subtle: #666c7a;
+
+  --sidebar: #121419;
+  --sidebar-foreground: #f1f2f5;
+  --sidebar-primary: #818cf8;
+  --sidebar-primary-foreground: #0a0b0f;
+  --sidebar-accent: rgba(129, 140, 248, 0.15);
+  --sidebar-accent-foreground: #a5b4fc;
+  --sidebar-border: #23262f;
+  --sidebar-ring: #818cf8;
+
+  color-scheme: dark;
+}
+
+/* 把 CSS 变量暴露给 Tailwind 工具类(bg-background / text-foreground / border-border 等) */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface-soft: var(--surface-soft);
+  --color-surface-2: var(--surface-2);
+  --color-text-subtle: var(--text-subtle);
+  --color-success: var(--success);
+  --color-success-weak: var(--success-weak);
+  --color-success-fg: var(--success-fg);
+  --color-warning: var(--warning);
+  --color-warning-weak: var(--warning-weak);
+  --color-warning-fg: var(--warning-fg);
+  --color-danger: var(--danger);
+  --color-danger-weak: var(--danger-weak);
+  --color-danger-fg: var(--danger-fg);
+  --color-info: var(--info);
+  --color-info-weak: var(--info-weak);
+  --color-info-fg: var(--info-fg);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+* {
+  border-color: var(--border);
+}
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 文本选中色:统一为品牌靛蓝 */
+::selection {
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+/* 细滚动条:贴合 SaaS 质感 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--text-subtle); }
+
+/* 对话 Markdown 渲染排版 */
+.md-body > :first-child { margin-top: 0; }
+.md-body > :last-child { margin-bottom: 0; }
+.md-body p { margin: 0.5em 0; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4 { margin: 0.8em 0 0.4em; font-weight: 700; line-height: 1.3; }
+.md-body h1 { font-size: 1.3em; }
+.md-body h2 { font-size: 1.18em; }
+.md-body h3 { font-size: 1.06em; }
+.md-body ul, .md-body ol { margin: 0.5em 0; padding-left: 1.4em; }
+.md-body li { margin: 0.2em 0; }
+.md-body ul { list-style: disc; }
+.md-body ol { list-style: decimal; }
+.md-body a { color: var(--primary); text-decoration: underline; }
+.md-body code {
+  font-family: var(--font-mono); font-size: 0.86em;
+  background: var(--surface-soft); border: 1px solid var(--border);
+  border-radius: 5px; padding: 1px 5px;
+}
+.md-body pre {
+  margin: 0.6em 0; padding: 12px 14px; overflow-x: auto;
+  background: var(--surface-soft); border: 1px solid var(--border); border-radius: 8px;
+}
+.md-body pre code { background: none; border: none; padding: 0; font-size: 0.82em; line-height: 1.6; }
+.md-body blockquote { margin: 0.6em 0; padding-left: 12px; border-left: 3px solid var(--border-strong); color: var(--text-muted); }
+.md-body table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.92em; }
+.md-body th, .md-body td { border: 1px solid var(--border); padding: 5px 10px; }
+.md-body th { background: var(--surface-soft); font-weight: 600; }
+.md-body strong { font-weight: 700; }
+
+/* 登录页动态光斑:缓慢漂浮 */
+@keyframes login-blob-float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(28px, -22px) scale(1.08); }
+}
+.login-blob { animation: login-blob-float 14s ease-in-out infinite; }
+.login-blob-2 { animation: login-blob-float 18s ease-in-out infinite reverse; }
+
+/* 登录背景:移动网格 */
+@keyframes login-grid-move { from { background-position: 0 0; } to { background-position: 44px 44px; } }
+.login-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--primary) 9%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--primary) 9%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+  animation: login-grid-move 8s linear infinite;
+  mask-image: radial-gradient(circle at 30% 40%, #000 0%, transparent 75%);
+}
+
+/* 登录背景:浮动立方体 */
+@keyframes login-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-20px) rotate(5deg); }
+}
+.login-float { animation: login-float 9s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .login-blob, .login-grid, .login-float { animation: none; }
+}

@@ -1,0 +1,17 @@
+.*
+*.md
+docs
+**/*.ps1
+
+aiops.db
+*.db
+*.log
+config.yaml
+.env
+web/dist
+web/node_modules
+
+build
+bin
+aiops-agent
+aiops-agent.exe

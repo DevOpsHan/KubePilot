@@ -1,0 +1,28 @@
+# 本地配置(含密钥/凭据),禁止提交
+config.yaml
+config.preview.yaml
+.env
+
+# 本地数据库文件
+*.db
+
+# 编译产物
+/build/
+/bin/
+/aiops-agent
+/aiops-agent.exe
+/web/dist/
+
+# Git 工作树目录
+.worktrees/
+
+# 依赖目录
+vendor/
+web/node_modules/
+
+# IDE
+.idea/
+.vscode/
+
+# 日志
+*.log

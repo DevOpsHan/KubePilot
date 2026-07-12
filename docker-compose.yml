@@ -1,0 +1,84 @@
+# 开箱即用:直接 `docker compose up --build -d` 即可一键构建并启动。
+# 内部服务仅通过 Compose 网络通信；生产部署请复制 .env.example 为 .env 并覆盖密码与 Console 监听地址。
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    environment:
+      MYSQL_ROOT_PASSWORD: ${AIOPS_DB_ROOT_PASSWORD:-aiops_root_dev}
+      MYSQL_DATABASE: ${AIOPS_DB_NAME:-aiops}
+      MYSQL_USER: ${AIOPS_DB_USER:-aiops}
+      MYSQL_PASSWORD: ${AIOPS_DB_PASSWORD:-aiops_dev_pw}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kubepilot-core:local
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AIOPS_CONFIG: /app/config.yaml
+      # 未显式配置时，容器入口会生成长度为 32 字节的随机文本密钥并持久化到 backend-data。
+      AIOPS_SECRET_KEY: ${AIOPS_SECRET_KEY:-}
+      AIOPS_SECRET_KEY_FILE: /data/secret-key
+      AIOPS_DATABASE_DRIVER: mysql
+      AIOPS_DATABASE_DSN: ${AIOPS_DB_USER:-aiops}:${AIOPS_DB_PASSWORD:-aiops_dev_pw}@tcp(mysql:3306)/${AIOPS_DB_NAME:-aiops}?charset=utf8mb4&parseTime=True&loc=Local
+      AIOPS_REDIS_ADDR: redis:6379
+      AIOPS_SYNC_ENABLED: ${AIOPS_SYNC_ENABLED:-true}
+    volumes:
+      - backend-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  console:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    image: kubepilot-console:local
+    restart: unless-stopped
+    depends_on:
+      core:
+        condition: service_healthy
+    ports:
+      - "${AIOPS_FRONTEND_BIND_ADDRESS:-127.0.0.1}:${AIOPS_FRONTEND_PORT:-5174}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql-data:
+  redis-data:
+  backend-data:
