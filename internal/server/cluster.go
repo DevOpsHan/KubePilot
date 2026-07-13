@@ -1,8 +1,11 @@
 package server
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 
@@ -55,6 +58,7 @@ func (s *Server) handleListClusters(c echo.Context) error {
 		}
 		items = append(items, toClusterListItem(cluster, s.runtimeForClusterID))
 	}
+	s.applyLiveReachability(c.Request().Context(), items)
 	return c.JSON(http.StatusOK, map[string]any{"count": len(items), "clusters": items})
 }
 
@@ -102,6 +106,44 @@ func toClusterListItem(cluster store.Cluster, runtimeForClusterID func(uint) (*c
 		item.LastValidatedAt = cluster.LastValidatedAt.Format("2006-01-02T15:04:05Z07:00")
 	}
 	return item
+}
+
+// applyLiveReachability 对运行时就绪且当前展示为 ready/degraded 的集群做实时连通性探测,
+// 探测失败即把该行展示状态下调为 disconnected(仅影响本次响应,不写库;写库仍由同步流程负责)。
+// 这样即便距上次同步不足一个周期,列表也能即时反映"集群已断连"。
+func (s *Server) applyLiveReachability(ctx context.Context, items []clusterListItem) {
+	if s.runtimeManager == nil || len(items) == 0 {
+		return
+	}
+	var wg sync.WaitGroup
+	for i := range items {
+		item := &items[i]
+		// 仅对"看起来正常"的集群探测:未就绪/已断连/导入中等状态无需再探,避免无意义开销
+		if !item.RuntimeReady {
+			continue
+		}
+		if item.Status != store.ClusterStatusReady && item.Status != store.ClusterStatusDegraded {
+			continue
+		}
+		runtime, err := s.runtimeManager.Get(item.ID)
+		if err != nil || runtime == nil || runtime.Collector == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(item *clusterListItem, col interface {
+			Ping(context.Context) error
+		}) {
+			defer wg.Done()
+			if err := col.Ping(ctx); err != nil {
+				item.Status = store.ClusterStatusDisconnected
+				item.RuntimeReady = false
+				if item.LastError == "" {
+					item.LastError = fmt.Sprintf("集群 API Server 连接失败: %v", err)
+				}
+			}
+		}(item, runtime.Collector)
+	}
+	wg.Wait()
 }
 
 // handleClusterOverview 返回集群概览(节点/Pod/命名空间统计)。
