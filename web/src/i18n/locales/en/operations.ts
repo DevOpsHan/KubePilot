@@ -15,7 +15,7 @@ export const enOperations = {
       label: 'Unhealthy Pods',
       prompt: 'Which Pods across all connected clusters are currently unhealthy or abnormal? Help me investigate them.',
     },
-    diagnose: {
+    deepDiagnose: {
       label: 'Deep diagnosis',
       prompt: 'Pick an unhealthy Pod from a connected cluster and investigate its root cause: gather on-site evidence, read its logs, and run read-only diagnostic commands inside the container if needed. Then explain the root cause and propose a fix.',
     },

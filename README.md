@@ -38,8 +38,8 @@ The sidebar and command palette are permission-aware. Users see only the entries
 ### Navigation
 
 - **Overview** (`/dashboard`): summarizes connected and healthy clusters, pending approvals, active alerts, synchronization timing, recent activity, and the active AI model.
-- **AI Chat** (`/chat`): accepts natural-language operations questions, queries cluster resources and status, starts inspections, and returns evidence-backed diagnosis and remediation guidance.
-- **Clusters** (`/clusters`): imports and manages kubeconfig-based clusters, runs synchronization, and exposes cluster health, nodes, cached resources, synchronization status, and task history.
+- **AI Chat** (`/chat`): accepts natural-language operations questions, queries cluster resources and status, reads Pod logs and live evidence, runs read-only diagnostic commands inside containers, starts inspections, and returns evidence-backed diagnosis and remediation guidance.
+- **Clusters** (`/clusters`): imports and manages kubeconfig-based clusters, runs synchronization, and continuously probes connectivity so a disconnected cluster is downgraded immediately. The cluster detail view is a single resource browser: a **Primary information** group (basic information, node status, synchronization status, namespaces, events, CRDs) sits above the grouped resources (workloads, network, configuration, storage), each filtered by namespace and name. Any object opens a side panel with its details and live YAML, and Pods additionally expose live logs and an interactive terminal (exec).
 - **AI Assistant** (`/models`): manages OpenAI-compatible model endpoints, model names, credentials, generation parameters, connectivity tests, enabled state, and the default model.
 - **Operations**: groups the inspection, alert, approval, audit, and policy workflows described below.
 - **Inspection Reports** (`/inspect-report`): starts cluster inspections and presents cross-cluster reports, detected anomalies, evidence, and diagnostic details.
@@ -203,7 +203,9 @@ Health checks in the Compose file also use `localhost` or `127.0.0.1` to access 
 - Run background automatic synchronization, manual synchronization, and pre-inspection synchronization while recording task source, time, resource counts, and results.
 - Cache snapshots of Nodes, Namespaces, Pods, Deployments, DaemonSets, StatefulSets, Services, Ingresses, ConfigMaps, Secret metadata, Jobs, CronJobs, PVCs, PVs, Events, HPAs, CRDs, and other resources.
 - When the Kubernetes API Server becomes completely unreachable, mark the cluster and latest synchronization task as failed and show unexecuted incremental work as not executed. Preserve the latest successful resources while clearly identifying them as historical and stale data.
+- Continuously probe cluster connectivity from the cluster list and downgrade an unreachable cluster to disconnected immediately.
 - Inspect resource versions, change counts, full-sync status, incremental rounds, and cached objects.
+- Browse cached resources grouped by category, drill into any object for its details and live YAML, and open live logs or an interactive read-only terminal (exec) for Pods.
 
 ### Inspections, Alerts, and Notifications
 
@@ -217,6 +219,7 @@ Health checks in the Compose file also use `localhost` or `127.0.0.1` to access 
 ### AI Diagnosis, Approval, and Remediation
 
 - Collect container status, Kubernetes Events, and crash logs as model evidence before diagnosis.
+- Let AI investigate proactively by reading Pod logs, gathering on-scene evidence, and running whitelisted read-only exec commands, with every AI-initiated action attributed to both the AI and the triggering user in the audit log.
 - Configure models from KubePilot Console, including OpenAI-compatible endpoints, connection tests, enable/disable controls, and a default model.
 - Reply in the primary natural language of the user's latest question. Chinese and English can be switched turn by turn in the same conversation, while commands, logs, YAML, PromQL, and resource names remain unchanged.
 - Inject the authenticated account identity and role into each AI conversation. Identity questions are answered deterministically from the server-side session even when no model is enabled, conversation memory is isolated by user, and AI tools are restricted to the account's role permissions and authorized clusters.
