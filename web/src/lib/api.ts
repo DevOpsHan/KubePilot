@@ -123,6 +123,65 @@ export async function getOverview(clusterId?: number) { return (await http.get('
 export async function listNodes(clusterId?: number) { return (await http.get('/cluster/nodes', withCluster(clusterId))).data }
 export async function listNodeMetrics(clusterId?: number) { return (await http.get('/cluster/node-metrics', withCluster(clusterId))).data }
 
+// ---- Pod 交互(列表 / 容器 / 日志 / 终端) ----
+export async function listPods(clusterId?: number, namespace?: string) {
+  return (await http.get('/cluster/pods', { params: compactParams({ cluster_id: clusterId, namespace }) })).data
+}
+export async function listPodContainers(clusterId: number, namespace: string, pod: string) {
+  return (await http.get(`/clusters/${clusterId}/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(pod)}/containers`)).data
+}
+// 一次性拉取日志(follow=false),返回纯文本
+export async function fetchPodLogs(
+  clusterId: number, namespace: string, pod: string,
+  opts: { container?: string; tail?: number; timestamps?: boolean; previous?: boolean } = {},
+): Promise<string> {
+  const query = compactParams({
+    container: opts.container, tail: opts.tail,
+    timestamps: opts.timestamps ? 'true' : undefined,
+    previous: opts.previous ? 'true' : undefined,
+  })
+  const search = new URLSearchParams(query as Record<string, string>).toString()
+  const url = `/api/clusters/${clusterId}/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(pod)}/logs${search ? `?${search}` : ''}`
+  const response = await apiFetch(url)
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`
+    try { const data = await response.json(); if (data?.error) message = data.error } catch { /* 非 JSON 响应,保留状态码 */ }
+    throw new Error(message)
+  }
+  return response.text()
+}
+
+// 把 /api 相对路径拼成同源 WebSocket URL(ws/wss 随页面协议),依赖同源 cookie 鉴权
+export function buildWsUrl(path: string, params: Record<string, string | number | undefined> = {}): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const search = new URLSearchParams(compactParams(params) as Record<string, string>).toString()
+  return `${proto}//${window.location.host}${path}${search ? `?${search}` : ''}`
+}
+// 打开日志跟随流(follow=true):后端升级为 WebSocket,持续推送日志字节
+export function openPodLogStream(
+  clusterId: number, namespace: string, pod: string,
+  opts: { container?: string; tail?: number; timestamps?: boolean } = {},
+): WebSocket {
+  const url = buildWsUrl(
+    `/api/clusters/${clusterId}/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(pod)}/logs`,
+    { container: opts.container, tail: opts.tail, follow: 'true', timestamps: opts.timestamps ? 'true' : undefined },
+  )
+  return new WebSocket(url)
+}
+// 打开 Pod 交互式终端(exec)WebSocket。command 支持多段 argv。
+export function openPodExecStream(
+  clusterId: number, namespace: string, pod: string,
+  opts: { container?: string; command?: string[] } = {},
+): WebSocket {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const search = new URLSearchParams()
+  if (opts.container) search.set('container', opts.container)
+  for (const arg of opts.command || []) search.append('command', arg)
+  const qs = search.toString()
+  const path = `/api/clusters/${clusterId}/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(pod)}/exec`
+  return new WebSocket(`${proto}//${window.location.host}${path}${qs ? `?${qs}` : ''}`)
+}
+
 // ---- 巡检 / 报告 ----
 export async function runInspect(clusterId?: number) { return (await http.post('/inspect/run', null, withCluster(clusterId))).data }
 export async function listReports(clusterId?: number) { return (await http.get('/inspect/reports', withCluster(clusterId))).data }

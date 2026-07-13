@@ -250,18 +250,18 @@ func buildStoredClusterRuntime(st *store.Store, cluster *store.Cluster) (*cluste
 		if err != nil {
 			return nil, err
 		}
-		kubeClient, metricsClient, dynamicClient, err := collector.NewClientsetsFromKubeconfigDataWithContext([]byte(kubeconfigData), cluster.ContextName)
+		kubeClient, metricsClient, dynamicClient, restConfig, err := collector.NewClientsetsFromKubeconfigDataWithConfig([]byte(kubeconfigData), cluster.ContextName)
 		if err != nil {
 			return nil, err
 		}
-		col = collector.NewWithMetricsAndDynamic(kubeClient, metricsClient, dynamicClient)
+		col = collector.NewWithMetricsDynamicAndConfig(kubeClient, metricsClient, dynamicClient, restConfig)
 		remediator = remediate.New(kubeClient, policy.RemediationEnabled)
 	case store.ClusterModeKubeconfig:
-		kubeClient, metricsClient, dynamicClient, _, err := collector.NewClientsetsFromKubeconfigFile(credential.KubeconfigPath, cluster.ContextName)
+		kubeClient, metricsClient, dynamicClient, restConfig, _, err := collector.NewClientsetsFromKubeconfigFileWithConfig(credential.KubeconfigPath, cluster.ContextName)
 		if err != nil {
 			return nil, err
 		}
-		col = collector.NewWithMetricsAndDynamic(kubeClient, metricsClient, dynamicClient)
+		col = collector.NewWithMetricsDynamicAndConfig(kubeClient, metricsClient, dynamicClient, restConfig)
 		remediator = remediate.New(kubeClient, policy.RemediationEnabled)
 	default:
 		return nil, fmt.Errorf("不支持恢复的集群导入方式: %s", cluster.Mode)

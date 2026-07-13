@@ -253,11 +253,11 @@ func encryptKubeconfig(kubeconfigData string) (string, string, error) {
 }
 
 func defaultClusterRuntimeBuilder(ctx context.Context, cluster *store.Cluster, policy *store.ClusterPolicy, kubeconfigData string) (*clusterruntime.Runtime, error) {
-	kubeClient, metricsClient, dynamicClient, err := collector.NewClientsetsFromKubeconfigDataWithContext([]byte(kubeconfigData), cluster.ContextName)
+	kubeClient, metricsClient, dynamicClient, restConfig, err := collector.NewClientsetsFromKubeconfigDataWithConfig([]byte(kubeconfigData), cluster.ContextName)
 	if err != nil {
 		return nil, err
 	}
-	col := collector.NewWithMetricsAndDynamic(kubeClient, metricsClient, dynamicClient)
+	col := collector.NewWithMetricsDynamicAndConfig(kubeClient, metricsClient, dynamicClient, restConfig)
 	rem := remediate.New(kubeClient, policy.RemediationEnabled)
 	engine := inspect.NewEngine(col, nil)
 	engine.SetClusterID(cluster.ID) // 绑定集群,读取该集群的规则覆盖配置

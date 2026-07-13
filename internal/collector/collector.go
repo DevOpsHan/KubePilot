@@ -34,6 +34,9 @@ type Collector struct {
 	clientset     kubernetes.Interface
 	metricsClient metricsclientset.Interface
 	dynamicClient dynamic.Interface
+	// restConfig 保存构建客户端时的 REST 配置,交互式能力(exec 终端 / 日志流)
+	// 需要它直接与 API Server 建立长连接;通过 fake client 构造时可能为 nil。
+	restConfig *rest.Config
 }
 
 const (
@@ -54,6 +57,12 @@ func NewWithMetrics(cs kubernetes.Interface, metricsClient metricsclientset.Inte
 // NewWithMetricsAndDynamic 用给定客户端创建采集器,包含 metrics 与动态资源能力。
 func NewWithMetricsAndDynamic(cs kubernetes.Interface, metricsClient metricsclientset.Interface, dynamicClient dynamic.Interface) *Collector {
 	return &Collector{clientset: cs, metricsClient: metricsClient, dynamicClient: dynamicClient}
+}
+
+// NewWithMetricsDynamicAndConfig 在 NewWithMetricsAndDynamic 基础上额外保存 REST 配置,
+// 以支持 exec 终端与日志流等需要直连 API Server 的交互式能力。
+func NewWithMetricsDynamicAndConfig(cs kubernetes.Interface, metricsClient metricsclientset.Interface, dynamicClient dynamic.Interface, cfg *rest.Config) *Collector {
+	return &Collector{clientset: cs, metricsClient: metricsClient, dynamicClient: dynamicClient, restConfig: cfg}
 }
 
 // Ping 对 Kubernetes API Server 执行一次轻量连通性检查。
@@ -113,6 +122,34 @@ func NewClientsetsFromKubeconfigFile(kubeconfigPath, contextName string) (kubern
 		return nil, nil, nil, "", err
 	}
 	return cs, metricsClient, dynamicClient, source, nil
+}
+
+// NewClientsetsFromKubeconfigFileWithConfig 与 NewClientsetsFromKubeconfigFile 相同,
+// 但额外返回 REST 配置,供 exec/日志流等交互式能力使用。
+func NewClientsetsFromKubeconfigFileWithConfig(kubeconfigPath, contextName string) (kubernetes.Interface, metricsclientset.Interface, dynamic.Interface, *rest.Config, string, error) {
+	cfg, source, err := NewRestConfigFromKubeconfig(kubeconfigPath, contextName)
+	if err != nil {
+		return nil, nil, nil, nil, "", err
+	}
+	cs, metricsClient, dynamicClient, err := newClientsetsFromConfig(cfg)
+	if err != nil {
+		return nil, nil, nil, nil, "", err
+	}
+	return cs, metricsClient, dynamicClient, cfg, source, nil
+}
+
+// NewClientsetsFromKubeconfigDataWithConfig 与 NewClientsetsFromKubeconfigDataWithContext 相同,
+// 但额外返回 REST 配置,供 exec/日志流等交互式能力使用。
+func NewClientsetsFromKubeconfigDataWithConfig(kubeconfigData []byte, contextName string) (kubernetes.Interface, metricsclientset.Interface, dynamic.Interface, *rest.Config, error) {
+	cfg, err := NewRestConfigFromKubeconfigData(kubeconfigData, contextName)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	cs, metricsClient, dynamicClient, err := newClientsetsFromConfig(cfg)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return cs, metricsClient, dynamicClient, cfg, nil
 }
 
 func newClientsetsFromConfig(cfg *rest.Config) (kubernetes.Interface, metricsclientset.Interface, dynamic.Interface, error) {

@@ -15,6 +15,7 @@ import { notify } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { NodeList } from '@/components/NodeList'
+import { PodsPanel } from '@/components/PodsPanel'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
@@ -182,12 +183,17 @@ function ClusterDetailContent() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="nodes">{t('detail.tabs.nodes')}</TabsTrigger>
+          <TabsTrigger value="pods">{t('detail.tabs.pods')}</TabsTrigger>
           <TabsTrigger value="sync">{t('detail.tabs.sync')}</TabsTrigger>
           <TabsTrigger value="basic">{t('detail.tabs.basic')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="nodes" className="mt-4">
           <NodeList clusterId={clusterId} embedded />
+        </TabsContent>
+
+        <TabsContent value="pods" className="mt-4">
+          <PodsPanel clusterId={clusterId} />
         </TabsContent>
 
         <TabsContent value="basic" className="mt-4">

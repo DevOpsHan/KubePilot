@@ -106,6 +106,10 @@ func (s *Server) registerRoutes() {
 	api.POST("/clusters/:id/sync", s.handleSyncCluster)
 	api.PUT("/clusters/:id", s.handleUpdateCluster)
 	api.DELETE("/clusters/:id", s.handleDeleteCluster)
+	// Pod 交互:容器列表 / 日志(可跟随)/ 交互式终端(exec)
+	api.GET("/clusters/:id/pods/:namespace/:name/containers", s.handleListPodContainers)
+	api.GET("/clusters/:id/pods/:namespace/:name/logs", s.handlePodLogs)
+	api.GET("/clusters/:id/pods/:namespace/:name/exec", s.handlePodExec)
 	// 模型管理
 	api.GET("/models/status", s.handleModelStatus)
 	api.GET("/models", s.handleListModels)

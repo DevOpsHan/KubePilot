@@ -43,6 +43,9 @@ const (
 	PermissionViewApprovals      = "approvals:view"
 	PermissionViewAlerts         = "alerts:view"
 	PermissionManageAlerts       = "alerts:manage"
+	// PermissionClusterExec 高危写权限:允许进入 Pod 执行命令(交互式终端)。
+	// 仅全局管理员与集群管理员默认持有,巡检员/查看者不得开终端。
+	PermissionClusterExec = "clusters:exec"
 	// PermissionManageNotifications 仅全局管理员持有(不加入其它角色映射):管理外部通知设置。
 	PermissionManageNotifications = "notifications:manage"
 	// PermissionManageInspection 仅全局管理员持有:管理巡检规则(启停/阈值)。
@@ -90,6 +93,7 @@ func RoleHasPermission(role, permission string) bool {
 		UserRoleClusterAdmin: {
 			PermissionViewClusters:       {},
 			PermissionManageClusters:     {},
+			PermissionClusterExec:        {},
 			PermissionRunInspect:         {},
 			PermissionViewApprovals:      {},
 			PermissionApproveRemediation: {},
