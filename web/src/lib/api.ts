@@ -85,6 +85,19 @@ export async function listClusterResourceSnapshots(id: number, resource?: string
   return (await http.get(`/clusters/${id}/resource-snapshots`, resource ? { params: { resource } } : undefined)).data
 }
 export async function listClusterSyncTasks(id: number) { return (await http.get(`/clusters/${id}/sync-tasks`)).data }
+export async function getClusterResourceObject(
+  id: number,
+  params: { apiVersion: string; resource: string; namespace?: string; name: string },
+) {
+  return (await http.get(`/clusters/${id}/resource-object`, {
+    params: compactParams({
+      api_version: params.apiVersion,
+      resource: params.resource,
+      namespace: params.namespace,
+      name: params.name,
+    }),
+  })).data
+}
 export async function listClusterDeletedResources(id: number, resource?: string) {
   return (await http.get(`/clusters/${id}/deleted-resources`, resource ? { params: { resource } } : undefined)).data
 }

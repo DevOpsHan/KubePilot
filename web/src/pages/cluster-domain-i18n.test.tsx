@@ -21,6 +21,7 @@ import {
   listNodes,
   syncCluster,
 } from '@/lib/api'
+import { useAuth } from '@/providers/AuthProvider'
 import { useChatAssistant } from '@/hooks/useChatAssistant'
 import { useClusters } from '@/providers/ClusterProvider'
 import { useConfirm } from '@/providers/ConfirmProvider'
@@ -59,6 +60,10 @@ vi.mock('@/providers/ClusterProvider', () => ({
 
 vi.mock('@/providers/ConfirmProvider', () => ({
   useConfirm: vi.fn(),
+}))
+
+vi.mock('@/providers/AuthProvider', () => ({
+  useAuth: vi.fn(),
 }))
 
 vi.mock('@/lib/toast', () => ({
@@ -154,6 +159,20 @@ beforeEach(() => {
     loadClusters: vi.fn().mockResolvedValue(undefined),
     selectCluster: vi.fn(),
   })
+  vi.mocked(useAuth).mockReturnValue({
+    user: { username: 'admin' },
+    permissions: [],
+    loading: false,
+    authenticated: true,
+    can: () => true,
+    refresh: vi.fn(),
+    onLoggedIn: vi.fn(),
+    logout: vi.fn(),
+    loginNotice: null,
+    setLoginNotice: vi.fn(),
+    expiredReason: null,
+    dismissExpired: vi.fn(),
+  } as unknown as ReturnType<typeof useAuth>)
   vi.mocked(getSecurityStatus).mockResolvedValue({ secret_key_ready: true })
   vi.mocked(getDashboardSummary).mockResolvedValue({
     cluster_count: 1,
@@ -531,7 +550,7 @@ describe('集群详情同步状态', () => {
       </I18nextProvider>,
     )
 
-    await user.click(await screen.findByRole('tab', { name: '同步状态' }))
+    await user.click(await screen.findByRole('button', { name: '同步状态' }))
     expect(await screen.findByText('当前集群连接失败')).toBeInTheDocument()
     expect(screen.getAllByText('同步失败').length).toBeGreaterThan(0)
     expect(screen.getAllByText(/未执行/u).length).toBeGreaterThan(0)
@@ -601,7 +620,7 @@ describe('集群详情同步状态', () => {
         </I18nextProvider>,
       )
 
-      await user.click(await screen.findByRole('tab', { name: 'Synchronization' }))
+      await user.click(await screen.findByRole('button', { name: 'Synchronization' }))
       expect(await screen.findByText('cluster-a-object')).toBeInTheDocument()
 
       await user.click(screen.getByRole('button', { name: 'switch-cluster' }))
@@ -661,7 +680,7 @@ describe('集群详情同步状态', () => {
         </I18nextProvider>,
       )
 
-      await user.click(await screen.findByRole('tab', { name: 'Synchronization' }))
+      await user.click(await screen.findByRole('button', { name: 'Synchronization' }))
       expect(await screen.findByText('all-filter-object')).toBeInTheDocument()
       expect(screen.getByText(/all-filter-deleted-object/u)).toBeInTheDocument()
 

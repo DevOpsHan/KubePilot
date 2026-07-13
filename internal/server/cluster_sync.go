@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"aiops/internal/clustersync"
+	"aiops/internal/collector"
 	"aiops/internal/store"
 )
 
@@ -134,6 +135,39 @@ func (s *Server) handleListClusterResourceSnapshots(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"count": len(rows), "snapshots": rows})
+}
+
+// handleGetClusterResourceObject 使用动态客户端实时获取单个对象并返回其 YAML。
+// 列表数据来自快照缓存,单对象内容则实时拉取,保证 YAML 反映集群当前状态。
+func (s *Server) handleGetClusterResourceObject(c echo.Context) error {
+	clusterID, err := clusterIDFromPath(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	if err := s.requireClusterPermission(c, store.PermissionViewClusters, clusterID); err != nil {
+		return err
+	}
+	runtime, err := s.runtimeForClusterID(clusterID)
+	if err != nil {
+		return c.JSON(runtimeErrorStatus(err), map[string]string{"error": err.Error()})
+	}
+	if runtime.Collector == nil {
+		return s.errNoCollector(c)
+	}
+	detail, err := runtime.Collector.GetResourceObjectYAML(
+		c.Request().Context(),
+		c.QueryParam("api_version"),
+		c.QueryParam("resource"),
+		c.QueryParam("namespace"),
+		c.QueryParam("name"),
+	)
+	if err != nil {
+		if errors.Is(err, collector.ErrInvalidResourceRequest) {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusBadGateway, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, detail)
 }
 
 // handleListClusterDeletedResources 返回资源缓存中已消失对象的删除历史。

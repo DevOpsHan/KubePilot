@@ -13,7 +13,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
 
@@ -350,6 +353,74 @@ func TestClusterSyncHistoryEndpoints(t *testing.T) {
 		deletedBody.Resources[0].Namespace != "default" ||
 		deletedBody.Resources[0].Name != "pod-a" {
 		t.Fatalf("删除历史响应不正确: %+v", deletedBody)
+	}
+}
+
+func TestGetClusterResourceObjectReturnsYAML(t *testing.T) {
+	st, err := store.Open("sqlite", filepath.Join(t.TempDir(), "aiops.db"))
+	if err != nil {
+		t.Fatalf("打开测试数据库失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	cluster, err := st.CreateCluster(store.CreateClusterInput{
+		Name: "资源对象测试集群",
+		Slug: "resource-object-test",
+		Mode: store.ClusterModeKubeconfigData,
+	})
+	if err != nil {
+		t.Fatalf("创建集群失败: %v", err)
+	}
+
+	scheme := runtime.NewScheme()
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "DeploymentList"}, &unstructured.UnstructuredList{})
+	deployment := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "apps/v1",
+		"kind":       "Deployment",
+		"metadata":   map[string]any{"name": "web", "namespace": "default"},
+		"spec":       map[string]any{"replicas": int64(3)},
+	}}
+	dynClient := dynamicfake.NewSimpleDynamicClient(scheme, deployment)
+
+	manager := clusterruntime.NewManager()
+	if err := manager.Register(&clusterruntime.Runtime{
+		ClusterID: cluster.ID,
+		Collector: collector.NewWithMetricsAndDynamic(fake.NewSimpleClientset(), nil, dynClient),
+	}); err != nil {
+		t.Fatalf("注册运行时失败: %v", err)
+	}
+
+	srv := NewServer(nil, nil, nil, st, nil, nil, cluster.ID, manager)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/clusters/"+strconvUint(cluster.ID)+"/resource-object?api_version=apps%2Fv1&resource=deployments&namespace=default&name=web", nil)
+	attachServerTestAdminSession(t, st, req)
+	rec := httptest.NewRecorder()
+	srv.Echo().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("资源对象接口应返回 200: got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Kind      string `json:"kind"`
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+		YAML      string `json:"yaml"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("解析资源对象响应失败: %v", err)
+	}
+	if body.Kind != "Deployment" || body.Name != "web" || body.Namespace != "default" {
+		t.Fatalf("资源对象元信息不正确: %+v", body)
+	}
+	if !strings.Contains(body.YAML, "name: web") || !strings.Contains(body.YAML, "kind: Deployment") {
+		t.Fatalf("资源对象 YAML 缺少关键字段: %s", body.YAML)
+	}
+
+	badReq := httptest.NewRequest(http.MethodGet, "/api/clusters/"+strconvUint(cluster.ID)+"/resource-object?resource=deployments&namespace=default&name=web", nil)
+	attachServerTestAdminSession(t, st, badReq)
+	badRec := httptest.NewRecorder()
+	srv.Echo().ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("缺少 api_version 应返回 400: got %d body=%s", badRec.Code, badRec.Body.String())
 	}
 }
 

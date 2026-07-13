@@ -101,6 +101,7 @@ func (s *Server) registerRoutes() {
 	api.GET("/clusters/sync/status", s.handleClusterSyncStatus)
 	api.GET("/clusters/:id/sync-resources", s.handleListClusterSyncResources)
 	api.GET("/clusters/:id/resource-snapshots", s.handleListClusterResourceSnapshots)
+	api.GET("/clusters/:id/resource-object", s.handleGetClusterResourceObject)
 	api.GET("/clusters/:id/deleted-resources", s.handleListClusterDeletedResources)
 	api.GET("/clusters/:id/sync-tasks", s.handleListClusterSyncTasks)
 	api.POST("/clusters/:id/sync", s.handleSyncCluster)

@@ -15,8 +15,7 @@ import { notify } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { NodeList } from '@/components/NodeList'
-import { PodsPanel } from '@/components/PodsPanel'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { ResourceBrowser } from '@/components/ResourceBrowser'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
@@ -67,7 +66,6 @@ function ClusterDetailContent() {
     return idx >= 0 ? idx + 1 : Number(id) || 0
   }, [clusters, id])
 
-  const [tab, setTab] = useState('nodes')
   const [syncRows, setSyncRows] = useState<any[]>([])
   const [syncStatus, setSyncStatus] = useState<any>(null)
   const [snapshots, setSnapshots] = useState<any[]>([])
@@ -170,52 +168,29 @@ function ClusterDetailContent() {
     setSyncError(null)
   }
 
-  return (
-    <div className="px-8 py-7">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <Button variant="ghost" size="sm" className="mb-1 -ml-2" onClick={() => navigate('/clusters')}><ArrowLeft className="size-4" /> {t('detail.back')}</Button>
-          <h2 className="text-xl font-bold tracking-tight">{t('detail.title')} · <span className="text-primary">{cluster?.name || '-'}</span></h2>
+  const basicPanel = (
+    <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-card p-5 shadow-sm md:grid-cols-3">
+      {([
+        [t('detail.basic.id'), `CL-${String(clusterSeq).padStart(4, '0')}`],
+        [t('detail.basic.name'), String(cluster?.name || '-')],
+        [t('detail.basic.description'), String(cluster?.description || '-')],
+        [t('detail.basic.version'), String(cluster?.version || '-')],
+        [t('detail.basic.importMode'), 'kubeconfig'],
+        [t('detail.basic.status'), localizeStatus(commonT, 'cluster', String(cluster?.status || 'unknown'))],
+      ] as [string, string][]).map(([k, v]) => (
+        <div key={k} className="rounded-lg bg-muted/50 px-4 py-3">
+          <div className="text-xs text-muted-foreground">{k}</div>
+          <div className="mt-1 font-semibold">{v}</div>
         </div>
-        <Button variant="outline" size="sm" onClick={syncNow} disabled={syncLoading}><RotateCw className={cn('size-4', syncLoading && 'animate-spin')} /> {syncLoading ? t('page.syncing') : t('detail.syncRefresh')}</Button>
-      </div>
+      ))}
+    </div>
+  )
 
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="nodes">{t('detail.tabs.nodes')}</TabsTrigger>
-          <TabsTrigger value="pods">{t('detail.tabs.pods')}</TabsTrigger>
-          <TabsTrigger value="sync">{t('detail.tabs.sync')}</TabsTrigger>
-          <TabsTrigger value="basic">{t('detail.tabs.basic')}</TabsTrigger>
-        </TabsList>
+  const nodesPanel = <NodeList clusterId={clusterId} embedded />
 
-        <TabsContent value="nodes" className="mt-4">
-          <NodeList clusterId={clusterId} embedded />
-        </TabsContent>
-
-        <TabsContent value="pods" className="mt-4">
-          <PodsPanel clusterId={clusterId} />
-        </TabsContent>
-
-        <TabsContent value="basic" className="mt-4">
-          <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-card p-5 shadow-sm md:grid-cols-3">
-            {([
-              [t('detail.basic.id'), `CL-${String(clusterSeq).padStart(4, '0')}`],
-              [t('detail.basic.name'), String(cluster?.name || '-')],
-              [t('detail.basic.description'), String(cluster?.description || '-')],
-              [t('detail.basic.version'), String(cluster?.version || '-')],
-              [t('detail.basic.importMode'), 'kubeconfig'],
-              [t('detail.basic.status'), localizeStatus(commonT, 'cluster', String(cluster?.status || 'unknown'))],
-            ] as [string, string][]).map(([k, v]) => (
-              <div key={k} className="rounded-lg bg-muted/50 px-4 py-3">
-                <div className="text-xs text-muted-foreground">{k}</div>
-                <div className="mt-1 font-semibold">{v}</div>
-              </div>
-            ))}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="sync" className="mt-4 space-y-4">
-          {syncError !== null && <div className="rounded-lg bg-warning-weak px-3 py-2 text-sm text-warning-fg">{t('errors.syncStatusLoadFailed', { error: readableSyncError(syncError, 'errors.loadFailed') })}</div>}
+  const syncPanel = (
+    <div className="space-y-4">
+      {syncError !== null && <div className="rounded-lg bg-warning-weak px-3 py-2 text-sm text-warning-fg">{t('errors.syncStatusLoadFailed', { error: readableSyncError(syncError, 'errors.loadFailed') })}</div>}
 
           {dataStale && (
             <div className="rounded-lg border border-destructive/30 bg-danger-weak px-4 py-3 text-sm text-danger-fg">
@@ -390,8 +365,25 @@ function ClusterDetailContent() {
               </div>
             </div>
           </div>
-        </TabsContent>
-      </Tabs>
+    </div>
+  )
+
+  return (
+    <div className="px-8 py-7">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <Button variant="ghost" size="sm" className="mb-1 -ml-2" onClick={() => navigate('/clusters')}><ArrowLeft className="size-4" /> {t('detail.back')}</Button>
+          <h2 className="text-xl font-bold tracking-tight">{t('detail.title')} · <span className="text-primary">{cluster?.name || '-'}</span></h2>
+        </div>
+        <Button variant="outline" size="sm" onClick={syncNow} disabled={syncLoading}><RotateCw className={cn('size-4', syncLoading && 'animate-spin')} /> {syncLoading ? t('page.syncing') : t('detail.syncRefresh')}</Button>
+      </div>
+
+      <ResourceBrowser
+        clusterId={clusterId}
+        basicPanel={basicPanel}
+        nodesPanel={nodesPanel}
+        syncPanel={syncPanel}
+      />
     </div>
   )
 }
