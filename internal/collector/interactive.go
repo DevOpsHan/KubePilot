@@ -1,13 +1,18 @@
 package collector
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	neturl "net/url"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 )
 
@@ -96,7 +101,7 @@ func (c *Collector) ExecInPod(ctx context.Context, namespace, pod string, opts E
 			TTY:       opts.TTY,
 		}, scheme.ParameterCodec)
 
-	executor, err := remotecommand.NewWebSocketExecutor(c.restConfig, "GET", execReq.URL().String())
+	executor, err := newFallbackExecutor(c.restConfig, execReq.URL())
 	if err != nil {
 		return fmt.Errorf("创建 exec 执行器失败: %w", err)
 	}
@@ -107,4 +112,100 @@ func (c *Collector) ExecInPod(ctx context.Context, namespace, pod string, opts E
 		Tty:               opts.TTY,
 		TerminalSizeQueue: opts.Resize,
 	})
+}
+
+// newFallbackExecutor 构建与 kubectl 一致的 exec 执行器:优先 WebSocket(v5 协议),
+// 若目标 API Server 不支持导致升级失败,自动回退到传统 SPDY 协议。
+// 阿里云 ACK 等仍以 SPDY 为主的集群依赖此回退才能正常 exec。
+func newFallbackExecutor(config *rest.Config, url *neturl.URL) (remotecommand.Executor, error) {
+	wsExecutor, err := remotecommand.NewWebSocketExecutor(config, "GET", url.String())
+	if err != nil {
+		return nil, err
+	}
+	spdyExecutor, err := remotecommand.NewSPDYExecutor(config, "POST", url)
+	if err != nil {
+		return nil, err
+	}
+	return remotecommand.NewFallbackExecutor(wsExecutor, spdyExecutor, func(e error) bool {
+		return httpstream.IsUpgradeFailure(e) || httpstream.IsHTTPSProxyError(e)
+	})
+}
+
+// execCaptureMaxBytes 限制 AI 诊断命令捕获的单流输出上限,避免把过长输出喂给大模型。
+const execCaptureMaxBytes = 8000
+
+// ExecCapture 在 Pod 容器内以非交互方式执行命令并捕获 stdout/stderr(供 AI 只读诊断)。
+// 与交互式 ExecInPod 的区别:无 stdin、TTY=false、输出写入带上限的缓冲区。
+// 命令白名单校验由调用方(agent 层)负责,这里只负责执行与捕获。
+func (c *Collector) ExecCapture(ctx context.Context, namespace, pod, container string, command []string) (stdout, stderr string, err error) {
+	if c == nil || c.clientset == nil {
+		return "", "", fmt.Errorf("K8S 客户端未就绪")
+	}
+	var outBuf, errBuf bytes.Buffer
+	execErr := c.ExecInPod(ctx, namespace, pod, ExecOptions{
+		Container: container,
+		Command:   command,
+		TTY:       false,
+		Stdin:     nil,
+		Stdout:    &limitedWriter{buf: &outBuf, limit: execCaptureMaxBytes},
+		Stderr:    &limitedWriter{buf: &errBuf, limit: execCaptureMaxBytes},
+	})
+	return truncateCapture(outBuf.String()), truncateCapture(errBuf.String()), execErr
+}
+
+// TailPodLogs 一次性读取 Pod 日志尾部(follow=false),返回截断后的文本,供 AI 工具使用。
+func (c *Collector) TailPodLogs(ctx context.Context, namespace, pod, container string, tailLines int64) (string, error) {
+	if c == nil || c.clientset == nil {
+		return "", fmt.Errorf("K8S 客户端未就绪")
+	}
+	if tailLines <= 0 {
+		tailLines = int64(evidenceLogTailLines)
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, defaultKubernetesRequestTimeout)
+	defer cancel()
+	stream, err := c.StreamPodLogs(reqCtx, namespace, pod, LogStreamOptions{
+		Container: container,
+		Follow:    false,
+		TailLines: &tailLines,
+	})
+	if err != nil {
+		return "", err
+	}
+	defer stream.Close()
+	data, err := io.ReadAll(io.LimitReader(stream, execCaptureMaxBytes))
+	if err != nil {
+		return "", err
+	}
+	text := strings.TrimSpace(string(data))
+	if text == "" {
+		return "(容器暂无日志输出)", nil
+	}
+	return text, nil
+}
+
+// limitedWriter 是带写入上限的 Writer:超过 limit 后丢弃多余字节(不报错),防止输出爆量。
+type limitedWriter struct {
+	buf   *bytes.Buffer
+	limit int
+}
+
+func (w *limitedWriter) Write(p []byte) (int, error) {
+	remaining := w.limit - w.buf.Len()
+	if remaining <= 0 {
+		return len(p), nil // 假装写入成功,实际丢弃
+	}
+	if len(p) > remaining {
+		w.buf.Write(p[:remaining])
+		return len(p), nil
+	}
+	return w.buf.Write(p)
+}
+
+// truncateCapture 对捕获输出做尾部截断提示。
+func truncateCapture(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= execCaptureMaxBytes {
+		return s + "\n…(输出过长已截断)…"
+	}
+	return s
 }

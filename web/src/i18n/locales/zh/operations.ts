@@ -16,6 +16,10 @@ export const zhOperations = {
       label: '节点状态',
       prompt: '列出所有已接入集群的节点状态、版本、CPU 和内存使用情况。',
     },
+    deepDiagnose: {
+      label: '深入诊断',
+      prompt: '帮我深入排查当前异常的 Pod：先采集现场证据(容器状态、事件、崩溃日志)和应用日志，必要时在容器内执行只读命令进一步定位，最后给出根因和修复建议。',
+    },
   },
   chat: {
     sessionId: '会话编号：{{id}}',

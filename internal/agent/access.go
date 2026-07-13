@@ -53,6 +53,8 @@ func permissionForTool(name string) (string, bool) {
 		return store.PermissionViewClusters, true
 	case "run_inspection":
 		return store.PermissionRunInspect, true
+	case "read_pod_logs", "pod_evidence", "exec_diagnostic":
+		return store.PermissionAIDiagnostics, true
 	case "propose_remediation":
 		return store.PermissionApproveRemediation, true
 	default:

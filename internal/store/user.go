@@ -46,6 +46,9 @@ const (
 	// PermissionClusterExec 高危写权限:允许进入 Pod 执行命令(交互式终端)。
 	// 仅全局管理员与集群管理员默认持有,巡检员/查看者不得开终端。
 	PermissionClusterExec = "clusters:exec"
+	// PermissionAIDiagnostics 允许 AI 助手深入现场排查(读日志/取证据/Pod 内跑只读命令)。
+	// 仅全局管理员与集群管理员默认持有;巡检员只做只读查询,不含此权限。
+	PermissionAIDiagnostics = "ai:diagnose"
 	// PermissionManageNotifications 仅全局管理员持有(不加入其它角色映射):管理外部通知设置。
 	PermissionManageNotifications = "notifications:manage"
 	// PermissionManageInspection 仅全局管理员持有:管理巡检规则(启停/阈值)。
@@ -94,6 +97,7 @@ func RoleHasPermission(role, permission string) bool {
 			PermissionViewClusters:       {},
 			PermissionManageClusters:     {},
 			PermissionClusterExec:        {},
+			PermissionAIDiagnostics:      {},
 			PermissionRunInspect:         {},
 			PermissionViewApprovals:      {},
 			PermissionApproveRemediation: {},

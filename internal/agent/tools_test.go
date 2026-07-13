@@ -26,7 +26,7 @@ func TestToolExecutorUsesRequestedClusterRuntime(t *testing.T) {
 	registerRuntime(t, manager, 2, "node-b")
 
 	executor := NewToolExecutor(nil, nil, nil, nil, 1, manager)
-	got := executor.Execute(context.Background(), 2, unrestrictedChatAccess(), "list_nodes", "{}")
+	got := executor.Execute(context.Background(), 2, unrestrictedChatAccess(), UserIdentity{}, "list_nodes", "{}")
 	if !strings.Contains(got, "node-b") {
 		t.Fatalf("应查询集群 2 的节点: %s", got)
 	}
@@ -86,7 +86,7 @@ func TestToolExecutorNodeMetricsDefaultsToAllClusters(t *testing.T) {
 	registerMetricsRuntime(t, manager, 2, "node-b", "250m", "512Mi")
 
 	executor := NewToolExecutor(nil, nil, nil, nil, 1, manager)
-	raw := executor.Execute(context.Background(), 0, unrestrictedChatAccess(), "node_metrics", "{}")
+	raw := executor.Execute(context.Background(), 0, unrestrictedChatAccess(), UserIdentity{}, "node_metrics", "{}")
 	var body struct {
 		Count    int `json:"count"`
 		Clusters []struct {
@@ -118,7 +118,7 @@ func TestToolExecutorListClustersOnlyReturnsAuthorizedTargets(t *testing.T) {
 		Permissions: []string{store.PermissionViewClusters},
 	}
 
-	raw := executor.Execute(context.Background(), 0, access, "list_clusters", "{}")
+	raw := executor.Execute(context.Background(), 0, access, UserIdentity{}, "list_clusters", "{}")
 	var body struct {
 		Count    int `json:"count"`
 		Clusters []struct {
@@ -144,7 +144,7 @@ func TestToolExecutorRejectsToolWithoutRolePermission(t *testing.T) {
 		Permissions: []string{store.PermissionViewClusters},
 	}
 
-	got := executor.Execute(context.Background(), 0, access, "run_inspection", "{}")
+	got := executor.Execute(context.Background(), 0, access, UserIdentity{}, "run_inspection", "{}")
 	if !strings.Contains(got, "没有权限") {
 		t.Fatalf("缺少巡检权限时应拒绝执行: %s", got)
 	}
@@ -152,7 +152,7 @@ func TestToolExecutorRejectsToolWithoutRolePermission(t *testing.T) {
 
 func TestToolExecutorRejectsUnmappedToolByDefault(t *testing.T) {
 	executor := NewToolExecutor(nil, nil, nil, nil, 0, nil)
-	got := executor.Execute(context.Background(), 0, unrestrictedChatAccess(), "future_unmapped_tool", "{}")
+	got := executor.Execute(context.Background(), 0, unrestrictedChatAccess(), UserIdentity{}, "future_unmapped_tool", "{}")
 	if !strings.Contains(got, "没有权限") {
 		t.Fatalf("未登记权限映射的工具应默认拒绝: %s", got)
 	}
@@ -197,5 +197,70 @@ func registerMetricsRuntime(t *testing.T, manager *clusterruntime.Manager, clust
 	col := collector.NewWithMetrics(kubeClient, metricsClient)
 	if err := manager.Register(&clusterruntime.Runtime{ClusterID: clusterID, Collector: col}); err != nil {
 		t.Fatalf("注册指标运行时失败: %v", err)
+	}
+}
+
+// diagnosticChatAccess 返回带 ai:diagnose 权限的访问范围(全集群)。
+func diagnosticChatAccess() ChatAccessScope {
+	return ChatAccessScope{
+		AllClusters: true,
+		Permissions: []string{
+			store.PermissionViewClusters,
+			store.PermissionRunInspect,
+			store.PermissionApproveRemediation,
+			store.PermissionAIDiagnostics,
+		},
+	}
+}
+
+// TestDiagnosticToolsHiddenWithoutPermission 验证:无 ai:diagnose 权限时,
+// 三个诊断工具既不出现在下发给模型的定义里,Execute 也直接返回拒绝。
+func TestDiagnosticToolsHiddenWithoutPermission(t *testing.T) {
+	diagnosticTools := map[string]struct{}{
+		"read_pod_logs": {}, "pod_evidence": {}, "exec_diagnostic": {},
+	}
+
+	// 无 ai:diagnose:定义里不应包含诊断工具
+	withoutDiag := unrestrictedChatAccess()
+	for _, def := range definitionsForAccess(withoutDiag) {
+		if _, ok := diagnosticTools[def.Function.Name]; ok {
+			t.Fatalf("无 ai:diagnose 权限不应下发诊断工具: %s", def.Function.Name)
+		}
+	}
+
+	// Execute 应拒绝
+	executor := NewToolExecutor(nil, nil, nil, nil, 0, nil)
+	for name := range diagnosticTools {
+		got := executor.Execute(context.Background(), 0, withoutDiag, UserIdentity{}, name, "{}")
+		if !strings.Contains(got, "没有权限") {
+			t.Fatalf("无 ai:diagnose 权限时 %s 应被拒绝,实际: %s", name, got)
+		}
+	}
+
+	// 有 ai:diagnose:定义里应包含全部三个诊断工具
+	withDiag := diagnosticChatAccess()
+	found := map[string]bool{}
+	for _, def := range definitionsForAccess(withDiag) {
+		if _, ok := diagnosticTools[def.Function.Name]; ok {
+			found[def.Function.Name] = true
+		}
+	}
+	for name := range diagnosticTools {
+		if !found[name] {
+			t.Fatalf("有 ai:diagnose 权限时应下发诊断工具: %s", name)
+		}
+	}
+}
+
+// TestExecDiagnosticRejectsDangerousCommand 验证 exec_diagnostic 在执行前用白名单拦截危险命令。
+func TestExecDiagnosticRejectsDangerousCommand(t *testing.T) {
+	manager := clusterruntime.NewManager()
+	registerRuntime(t, manager, 1, "node-a")
+	executor := NewToolExecutor(nil, nil, nil, nil, 1, manager)
+
+	args := `{"cluster_id":1,"namespace":"default","pod":"web","command":["rm","-rf","/"]}`
+	got := executor.Execute(context.Background(), 1, diagnosticChatAccess(), UserIdentity{Username: "tester"}, "exec_diagnostic", args)
+	if !strings.Contains(got, "白名单") {
+		t.Fatalf("危险命令应被白名单拦截,实际: %s", got)
 	}
 }

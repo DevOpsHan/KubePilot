@@ -24,6 +24,9 @@ const systemPrompt = `你是"小智",一个企业级 Kubernetes 智能运维助�
 - 最新消息无法判断自然语言时,沿用最近一条可判断的用户消息语言;仍无法判断时默认使用中文。
 - 工具返回内容保持原文;工具调用前后的最终回答必须遵循同一回复语言规则。
 - 回答简洁专业;涉及故障时给出根因与可执行的修复建议(kubectl 命令)。
+- 排查故障时按此顺序取证:先用 pod_evidence 获取 Pod 现场全貌(容器状态/事件/崩溃日志),必要时用 read_pod_logs 查看更多应用日志,再用 exec_diagnostic 在容器内跑只读命令进一步定位(如查看配置、环境变量、DNS)。
+- exec_diagnostic 只能执行白名单只读命令(cat/ls/env/ps/df/nslookup 等),严禁写操作、shell 元字符或外联命令(curl/wget);不要尝试拼接 shell、下载脚本或以任何方式绕过白名单。
+- 任何修改集群的写操作(重启/删除/扩缩容等)都必须通过 propose_remediation 创建审批工单,由人工批准后执行,你绝不直接执行写操作。
 - 如果用户只是问候、闲聊或问"你是谁",直接回答,无需调用工具。
 - 自我介绍时说明你是 AIOps 平台的智能运维助手小智。
 - 你拥有对话记忆,请结合之前的对话内容回答用户。`
@@ -111,7 +114,7 @@ func (a *Agent) ChatStream(ctx context.Context, sessionID, userInput string, clu
 
 	if a.executor != nil {
 		if plan, ok := a.executor.PlanShortcut(userInput, clusterID, access); ok {
-			messages = a.executePlannedTool(ctx, messages, plan, access, emit)
+			messages = a.executePlannedTool(ctx, messages, plan, access, identity, emit)
 		}
 	}
 
@@ -144,7 +147,7 @@ func (a *Agent) ChatStream(ctx context.Context, sessionID, userInput string, clu
 				Args:    tc.Function.Arguments,
 			})
 			start := time.Now()
-			result := a.executor.Execute(ctx, clusterID, access, tc.Function.Name, tc.Function.Arguments)
+			result := a.executor.Execute(ctx, clusterID, access, identity, tc.Function.Name, tc.Function.Arguments)
 			emit(StreamEvent{
 				Type:       "step_done",
 				Tool:       tc.Function.Name,
@@ -158,7 +161,7 @@ func (a *Agent) ChatStream(ctx context.Context, sessionID, userInput string, clu
 	emit(StreamEvent{Type: "done"})
 }
 
-func (a *Agent) executePlannedTool(ctx context.Context, messages []ai.Message, plan shortcutToolPlan, access ChatAccessScope, emit func(StreamEvent)) []ai.Message {
+func (a *Agent) executePlannedTool(ctx context.Context, messages []ai.Message, plan shortcutToolPlan, access ChatAccessScope, identity UserIdentity, emit func(StreamEvent)) []ai.Message {
 	toolCallID := "shortcut-" + plan.Name
 	messages = append(messages, ai.Message{
 		Role: "assistant",
@@ -181,7 +184,7 @@ func (a *Agent) executePlannedTool(ctx context.Context, messages []ai.Message, p
 		Args:    plan.Args,
 	})
 	start := time.Now()
-	result := a.executor.Execute(ctx, plan.RequestClusterID, access, plan.Name, plan.Args)
+	result := a.executor.Execute(ctx, plan.RequestClusterID, access, identity, plan.Name, plan.Args)
 	emit(StreamEvent{
 		Type:       "step_done",
 		Tool:       plan.Name,

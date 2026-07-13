@@ -268,6 +268,7 @@ func permissionsForRole(role string) []string {
 		store.PermissionViewClusters,
 		store.PermissionManageClusters,
 		store.PermissionClusterExec,
+		store.PermissionAIDiagnostics,
 		store.PermissionManageModels,
 		store.PermissionManageUsers,
 		store.PermissionRunInspect,

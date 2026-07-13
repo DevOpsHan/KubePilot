@@ -96,6 +96,53 @@ func Definitions() []ai.Tool {
 			},
 		}},
 		{Type: "function", Function: ai.FunctionDef{
+			Name:        "read_pod_logs",
+			Description: "读取指定 Pod 的日志尾部(只读)。诊断 CrashLoopBackOff、报错、启动失败等问题时用它查看应用日志。必须明确指定单个集群。",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"namespace":    map[string]any{"type": "string", "description": "命名空间"},
+					"pod":          map[string]any{"type": "string", "description": "Pod 名称"},
+					"container":    map[string]any{"type": "string", "description": "容器名;多容器 Pod 时指定,留空取默认容器"},
+					"tail":         map[string]any{"type": "integer", "description": "读取尾部行数,留空默认 50 行"},
+					"cluster_id":   clusterScopeProps["cluster_id"],
+					"cluster_name": clusterScopeProps["cluster_name"],
+				},
+				"required": []string{"namespace", "pod"},
+			},
+		}},
+		{Type: "function", Function: ai.FunctionDef{
+			Name:        "pod_evidence",
+			Description: "采集指定 Pod 的现场证据:容器状态详情(waiting/terminated 原因、退出码、重启次数)+ 关联事件 + 崩溃日志。诊断 Pod 异常时优先调用它获取全貌。必须明确指定单个集群。",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"namespace":    map[string]any{"type": "string", "description": "命名空间"},
+					"pod":          map[string]any{"type": "string", "description": "Pod 名称"},
+					"cluster_id":   clusterScopeProps["cluster_id"],
+					"cluster_name": clusterScopeProps["cluster_name"],
+				},
+				"required": []string{"namespace", "pod"},
+			},
+		}},
+		{Type: "function", Function: ai.FunctionDef{
+			Name: "exec_diagnostic",
+			Description: "在 Pod 容器内执行【只读】诊断命令并返回输出。仅允许白名单只读命令(如 cat/ls/env/ps/df/cat /etc/resolv.conf/nslookup 等)," +
+				"禁止任何写操作、shell 元字符、外联命令。用于进一步定位配置/环境/DNS 等问题。必须明确指定单个集群。",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"namespace":    map[string]any{"type": "string", "description": "命名空间"},
+					"pod":          map[string]any{"type": "string", "description": "Pod 名称"},
+					"container":    map[string]any{"type": "string", "description": "容器名;留空取默认容器"},
+					"command":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "命令 argv 数组,如 [\"cat\",\"/etc/resolv.conf\"];首个元素必须是白名单命令"},
+					"cluster_id":   clusterScopeProps["cluster_id"],
+					"cluster_name": clusterScopeProps["cluster_name"],
+				},
+				"required": []string{"namespace", "pod", "command"},
+			},
+		}},
+		{Type: "function", Function: ai.FunctionDef{
 			Name: "propose_remediation",
 			Description: "提议一个修复操作。注意:这只会创建【审批工单】,绝不立即执行,必须人工在审批中心批准后才执行。" +
 				"当你诊断出故障且确定修复方案时调用。任何命名空间的写操作都必须先经过人工审批。",
@@ -137,6 +184,38 @@ func commandFor(name, argsJSON string) string {
 		return "kubectl top nodes  # 默认所有集群节点 CPU/内存"
 	case "run_inspection":
 		return "同步并巡检所有集群:扫描 Pod/Node 异常规则"
+	case "read_pod_logs":
+		var a struct {
+			Namespace string `json:"namespace"`
+			Pod       string `json:"pod"`
+			Container string `json:"container"`
+		}
+		_ = json.Unmarshal([]byte(argsJSON), &a)
+		cmd := "kubectl logs -n " + a.Namespace + " " + a.Pod
+		if a.Container != "" {
+			cmd += " -c " + a.Container
+		}
+		return cmd + " --tail 50"
+	case "pod_evidence":
+		var a struct {
+			Namespace string `json:"namespace"`
+			Pod       string `json:"pod"`
+		}
+		_ = json.Unmarshal([]byte(argsJSON), &a)
+		return "kubectl describe pod -n " + a.Namespace + " " + a.Pod + "  # 状态+事件+崩溃日志"
+	case "exec_diagnostic":
+		var a struct {
+			Namespace string   `json:"namespace"`
+			Pod       string   `json:"pod"`
+			Container string   `json:"container"`
+			Command   []string `json:"command"`
+		}
+		_ = json.Unmarshal([]byte(argsJSON), &a)
+		cmd := "kubectl exec -n " + a.Namespace + " " + a.Pod
+		if a.Container != "" {
+			cmd += " -c " + a.Container
+		}
+		return cmd + " -- " + strings.Join(a.Command, " ") + "  # 只读诊断"
 	case "propose_remediation":
 		return "创建修复审批工单(待人工批准)"
 	default:
@@ -294,7 +373,8 @@ func mentionsCurrentCluster(userInput string) bool {
 }
 
 // Execute 在服务端认证访问范围内执行指定工具,返回文本结果供模型阅读。
-func (e *ToolExecutor) Execute(ctx context.Context, clusterID uint, access ChatAccessScope, name, argsJSON string) string {
+// identity 为触发本次对话的登录用户身份,用于给 AI 发起的写/诊断操作打审计标记。
+func (e *ToolExecutor) Execute(ctx context.Context, clusterID uint, access ChatAccessScope, identity UserIdentity, name, argsJSON string) string {
 	if !access.allowsTool(name) {
 		return access.deniedToolMessage(name)
 	}
@@ -317,12 +397,21 @@ func (e *ToolExecutor) Execute(ctx context.Context, clusterID uint, access ChatA
 	case "run_inspection":
 		return e.executeInspection(ctx, clusterID, access, argsJSON)
 
+	case "read_pod_logs":
+		return e.executeReadPodLogs(ctx, clusterID, access, argsJSON)
+
+	case "pod_evidence":
+		return e.executePodEvidence(ctx, clusterID, access, argsJSON)
+
+	case "exec_diagnostic":
+		return e.executeExecDiagnostic(ctx, clusterID, access, identity, argsJSON)
+
 	case "propose_remediation":
 		targets := e.targetsForTool(clusterID, access, argsJSON)
 		if len(targets) != 1 || targets[0].Err != nil {
 			return "修复提议必须明确一个已就绪集群,请先说明要修复哪个集群。"
 		}
-		return e.proposeRemediation(targets[0].ID, targets[0].Runtime.Remediator, argsJSON)
+		return e.proposeRemediation(targets[0].ID, targets[0].Runtime.Remediator, identity, argsJSON)
 
 	default:
 		return fmt.Sprintf("未知工具: %s", name)
@@ -600,7 +689,7 @@ func clusterCode(id uint) string {
 }
 
 // proposeRemediation 校验修复开关后创建审批工单(不执行)。
-func (e *ToolExecutor) proposeRemediation(clusterID uint, remediator *remediate.Executor, argsJSON string) string {
+func (e *ToolExecutor) proposeRemediation(clusterID uint, remediator *remediate.Executor, identity UserIdentity, argsJSON string) string {
 	if remediator == nil || !remediator.Enabled() {
 		return "修复功能未启用,无法提议修复操作。"
 	}
@@ -626,15 +715,155 @@ func (e *ToolExecutor) proposeRemediation(clusterID uint, remediator *remediate.
 	if risk == "" {
 		risk = "medium"
 	}
+	reason := a.Reason
+	if prefix := aiOperatorLabel(identity); prefix != "" {
+		reason = "[" + prefix + "] " + reason
+	}
 	ticket, err := e.store.CreateTicket(clusterID, &store.ApprovalTicket{
 		Action: a.Action, Namespace: a.Namespace, Target: a.Target,
-		Params: params, Reason: a.Reason, Risk: risk, Status: store.TicketPending,
+		Params: params, Reason: reason, Risk: risk, Status: store.TicketPending,
 	})
 	if err != nil {
 		return "创建审批工单失败: " + err.Error()
 	}
 	return fmt.Sprintf("已创建审批工单 #%d(操作:%s,目标:%s/%s)。⚠️ 此操作不会自动执行,需到「审批中心」人工批准后才执行。",
 		ticket.ID, a.Action, a.Namespace, a.Target)
+}
+
+// singleReadyTarget 解析出唯一已就绪集群,供 AI 现场排查工具使用(读日志/证据/exec 都必须明确单集群)。
+func (e *ToolExecutor) singleReadyTarget(clusterID uint, access ChatAccessScope, argsJSON string) (clusterTarget, string) {
+	targets := e.targetsForTool(clusterID, access, argsJSON)
+	if len(targets) != 1 {
+		return clusterTarget{}, "该操作必须明确一个集群,请说明要排查哪个集群。"
+	}
+	if targets[0].Err != nil {
+		return clusterTarget{}, targets[0].Err.Error()
+	}
+	if targets[0].Runtime == nil || targets[0].Runtime.Collector == nil {
+		return clusterTarget{}, "集群客户端未就绪,无法执行该操作。"
+	}
+	return targets[0], ""
+}
+
+// executeReadPodLogs 读取指定 Pod 日志尾部(只读)。
+func (e *ToolExecutor) executeReadPodLogs(ctx context.Context, clusterID uint, access ChatAccessScope, argsJSON string) string {
+	var a struct {
+		Namespace string `json:"namespace"`
+		Pod       string `json:"pod"`
+		Container string `json:"container"`
+		Tail      int64  `json:"tail"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
+		return "参数解析失败: " + err.Error()
+	}
+	if a.Namespace == "" || a.Pod == "" {
+		return "read_pod_logs 需要 namespace 与 pod 参数。"
+	}
+	target, deny := e.singleReadyTarget(clusterID, access, argsJSON)
+	if deny != "" {
+		return deny
+	}
+	logs, err := target.Runtime.Collector.TailPodLogs(ctx, a.Namespace, a.Pod, a.Container, a.Tail)
+	if err != nil {
+		return fmt.Sprintf("读取日志失败(%s/%s): %s", a.Namespace, a.Pod, err.Error())
+	}
+	return logs
+}
+
+// executePodEvidence 采集指定 Pod 的现场证据(容器状态 + 事件 + 崩溃日志)。
+func (e *ToolExecutor) executePodEvidence(ctx context.Context, clusterID uint, access ChatAccessScope, argsJSON string) string {
+	var a struct {
+		Namespace string `json:"namespace"`
+		Pod       string `json:"pod"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
+		return "参数解析失败: " + err.Error()
+	}
+	if a.Namespace == "" || a.Pod == "" {
+		return "pod_evidence 需要 namespace 与 pod 参数。"
+	}
+	target, deny := e.singleReadyTarget(clusterID, access, argsJSON)
+	if deny != "" {
+		return deny
+	}
+	evidence := target.Runtime.Collector.PodEvidence(ctx, a.Namespace, a.Pod)
+	if evidence == "" {
+		return fmt.Sprintf("未采集到 %s/%s 的现场证据(Pod 可能不存在或客户端未就绪)。", a.Namespace, a.Pod)
+	}
+	return evidence
+}
+
+// executeExecDiagnostic 在 Pod 容器内执行白名单只读命令并返回输出,同时写审计。
+func (e *ToolExecutor) executeExecDiagnostic(ctx context.Context, clusterID uint, access ChatAccessScope, identity UserIdentity, argsJSON string) string {
+	var a struct {
+		Namespace string   `json:"namespace"`
+		Pod       string   `json:"pod"`
+		Container string   `json:"container"`
+		Command   []string `json:"command"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
+		return "参数解析失败: " + err.Error()
+	}
+	if a.Namespace == "" || a.Pod == "" {
+		return "exec_diagnostic 需要 namespace 与 pod 参数。"
+	}
+	if err := ValidateDiagnosticCommand(a.Command); err != nil {
+		return "命令被拒绝: " + err.Error()
+	}
+	target, deny := e.singleReadyTarget(clusterID, access, argsJSON)
+	if deny != "" {
+		return deny
+	}
+	stdout, stderr, err := target.Runtime.Collector.ExecCapture(ctx, a.Namespace, a.Pod, a.Container, a.Command)
+
+	cmdText := strings.Join(a.Command, " ")
+	auditResult := "成功"
+	if err != nil {
+		auditResult = "失败: " + err.Error()
+	}
+	e.auditAIExec(target.ID, identity, a.Namespace+"/"+a.Pod, cmdText, auditResult)
+
+	if err != nil {
+		return fmt.Sprintf("命令执行失败(%s/%s $ %s): %s", a.Namespace, a.Pod, cmdText, err.Error())
+	}
+	var out strings.Builder
+	out.WriteString(fmt.Sprintf("$ %s\n", cmdText))
+	if stdout != "" {
+		out.WriteString(stdout)
+	}
+	if stderr != "" {
+		out.WriteString("\n[stderr]\n" + stderr)
+	}
+	if stdout == "" && stderr == "" {
+		out.WriteString("(命令无输出)")
+	}
+	return out.String()
+}
+
+// auditAIExec 记录 AI 发起的 exec 诊断审计,操作者标记为 AI + 触发用户。
+func (e *ToolExecutor) auditAIExec(clusterID uint, identity UserIdentity, target, command, result string) {
+	if e.store == nil {
+		return
+	}
+	_ = e.store.AddAudit(clusterID, &store.AuditLog{
+		Action:   "ai:exec_diagnostic",
+		Operator: aiOperatorLabel(identity),
+		Target:   target,
+		Detail:   command,
+		Result:   result,
+	})
+}
+
+// aiOperatorLabel 生成 "AI(小智)·触发人:<用户>" 的操作者标记。
+func aiOperatorLabel(identity UserIdentity) string {
+	name := strings.TrimSpace(identity.DisplayName)
+	if name == "" {
+		name = strings.TrimSpace(identity.Username)
+	}
+	if name == "" {
+		return "AI(小智)"
+	}
+	return "AI(小智)·触发人:" + name
 }
 
 func toJSON(v any) string {
