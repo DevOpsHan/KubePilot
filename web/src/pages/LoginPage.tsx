@@ -5,6 +5,7 @@ import { normalizeLanguage } from '@/i18n'
 import { localizeApiError, type CommonErrorKey } from '@/i18n/errors'
 import { login as loginApi, changePassword } from '@/lib/api'
 import { useAuth, type SessionReason } from '@/providers/AuthProvider'
+import { notify } from '@/lib/toast'
 import { ThemeSwitcher } from '@/components/ThemeSwitcher'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import { LoginBackground } from '@/components/LoginBackground'
@@ -35,6 +36,13 @@ function sessionReasonKey(reason: SessionReason): 'session.idle' | 'session.unau
   return reason === 'idle' ? 'session.idle' : 'session.unauthorized'
 }
 
+// 按当前小时选择问候语:5-12 早上,12-18 下午,其余晚上。
+function greetingKey(hour: number): 'greeting.morning' | 'greeting.afternoon' | 'greeting.evening' {
+  if (hour >= 5 && hour < 12) return 'greeting.morning'
+  if (hour >= 12 && hour < 18) return 'greeting.afternoon'
+  return 'greeting.evening'
+}
+
 function apiError(error: unknown, fallbackKey: CommonErrorKey): LoginError {
   return { kind: 'api', error, fallbackKey }
 }
@@ -52,6 +60,13 @@ export function LoginPage() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
 
+  // 登录成功后弹出按时段问候。用户名回退到输入框内容。
+  function greet(user: { username?: string; display_name?: string } | null | undefined) {
+    const name = user?.display_name || user?.username || username.trim()
+    if (!name) return
+    notify.success(t('greeting.welcome', { greeting: t(greetingKey(new Date().getHours())), name }))
+  }
+
   async function submitLogin(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
@@ -63,6 +78,7 @@ export function LoginPage() {
     try {
       const data = await loginApi(username.trim(), password)
       if (data.password_change_required) { setMustChange(true); return }
+      greet(data.user)
       await onLoggedIn(data.user)
     } catch (err: unknown) {
       setError(apiError(err, 'errors.signInFailed'))
@@ -88,6 +104,7 @@ export function LoginPage() {
     try {
       await changePassword(username.trim(), password, newPassword)
       const data = await loginApi(username.trim(), newPassword)
+      greet(data.user)
       await onLoggedIn(data.user)
     } catch (err: unknown) {
       setError(apiError(err, 'errors.changePasswordFailed'))

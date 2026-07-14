@@ -31,6 +31,12 @@ export const zhAuth = {
     feat3Title: '审批 + 审计闭环',
     feat3Desc: '高危操作可控可追溯',
   },
+  greeting: {
+    morning: '早上好 ☀️',
+    afternoon: '下午好 🌤️',
+    evening: '晚上好 🌙',
+    welcome: '{{greeting}}，{{name}}，欢迎登录 KubePilot 智能助手',
+  },
   session: {
     title: '会话已过期',
     relogin: '重新登录',

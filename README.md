@@ -39,7 +39,7 @@ The sidebar and command palette are permission-aware. Users see only the entries
 
 - **Overview** (`/dashboard`): summarizes connected and healthy clusters, pending approvals, active alerts, synchronization timing, recent activity, and the active AI model.
 - **AI Chat** (`/chat`): accepts natural-language operations questions, queries cluster resources and status, reads Pod logs and live evidence, runs read-only diagnostic commands inside containers, starts inspections, and returns evidence-backed diagnosis and remediation guidance.
-- **Clusters** (`/clusters`): imports and manages kubeconfig-based clusters, runs synchronization, and continuously probes connectivity so a disconnected cluster is downgraded immediately. The cluster detail view is a single resource browser: a **Primary information** group (basic information, node status, synchronization status, namespaces, events, CRDs) sits above the grouped resources (workloads, network, configuration, storage), each filtered by namespace and name. Any object opens a side panel with its details and live YAML, and Pods additionally expose live logs and an interactive terminal (exec).
+- **Clusters** (`/clusters`): imports and manages kubeconfig-based clusters, runs synchronization, and continuously probes connectivity so a disconnected cluster is downgraded immediately. The cluster detail view is a single resource browser: a **Primary information** group (basic information, node status, synchronization status, namespaces, events, CRDs) sits above the grouped resources (workloads, network, configuration, storage), each filtered by namespace and name and refreshable on demand. Any object opens a side panel with its details and live YAML, and Pods additionally expose live logs and an interactive terminal (exec).
 - **AI Assistant** (`/models`): manages OpenAI-compatible model endpoints, model names, credentials, generation parameters, connectivity tests, enabled state, and the default model.
 - **Operations**: groups the inspection, alert, approval, audit, and policy workflows described below.
 - **Inspection Reports** (`/inspect-report`): starts cluster inspections and presents cross-cluster reports, detected anomalies, evidence, and diagnostic details.
@@ -57,6 +57,7 @@ The sidebar and command palette are permission-aware. Users see only the entries
 - **Theme**: switches the interface theme.
 - **ZH / EN**: switches the complete application interface between Simplified Chinese and English.
 - **Signed-in account**: displays only the authenticated username in the top-right corner and updates when the account changes.
+- **Login greeting**: after a successful sign-in, a personalized welcome toast pops up based on the time of day (morning / afternoon / evening) and shows the current username.
 
 ## Installation and Startup
 

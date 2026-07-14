@@ -187,6 +187,8 @@ export const enClusters = {
     empty: 'No resource objects yet. Wait for auto sync or click "Sync / Refresh".',
     copied: 'YAML copied to clipboard',
     copyFailed: 'Copy failed, please select and copy manually',
+    refreshed_one: 'Refreshed, {{count}} object',
+    refreshed_other: 'Refreshed, {{count}} objects',
     groups: {
       primary: 'Primary',
       workloads: 'Workloads',

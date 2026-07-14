@@ -34,6 +34,12 @@ export const enAuth = {
     feat3Title: 'Approval + audit loop',
     feat3Desc: 'Risky ops controlled & traceable',
   },
+  greeting: {
+    morning: 'Good morning ☀️',
+    afternoon: 'Good afternoon 🌤️',
+    evening: 'Good evening 🌙',
+    welcome: '{{greeting}}, {{name}}. Welcome to the KubePilot AI assistant',
+  },
   session: {
     title: 'Session expired',
     relogin: 'Sign in again',

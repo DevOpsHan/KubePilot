@@ -113,15 +113,22 @@ export function ResourceBrowser({ clusterId, basicPanel, nodesPanel, syncPanel }
   const isPod = selected === 'pods'
   const clusterScoped = CLUSTER_SCOPED.has(selected)
 
-  const load = useCallback(async () => {
+  // manual=true 时给出成功反馈并保底最短转圈时间,避免缓存命中过快看不到刷新动作。
+  const load = useCallback(async (manual = false) => {
     // 特殊视图不请求资源快照。
     if (!clusterId || isPrimaryView(selected)) return
     const seq = ++listSeq.current
     setLoading(true)
     setError(null)
+    const minSpin = manual ? new Promise((resolve) => setTimeout(resolve, 400)) : Promise.resolve()
     try {
       const result = await listClusterResourceSnapshots(clusterId, selected)
-      if (seq === listSeq.current) setRows(result.snapshots || [])
+      await minSpin
+      if (seq === listSeq.current) {
+        const snapshots = result.snapshots || []
+        setRows(snapshots)
+        if (manual) notify.success(t('resources.refreshed', { count: snapshots.length }))
+      }
     } catch (e) {
       const err = e as { response?: { data?: { error?: string } }; message?: string }
       if (seq === listSeq.current) setError(err.response?.data?.error || err.message || t('resources.loadFailed'))
@@ -260,7 +267,7 @@ export function ResourceBrowser({ clusterId, basicPanel, nodesPanel, syncPanel }
               className="h-9 w-56"
             />
             <span className="text-xs text-muted-foreground">{t('resources.count', { count: filtered.length })}</span>
-            <Button variant="outline" size="sm" className="ml-auto" onClick={load} disabled={loading}>
+            <Button variant="outline" size="sm" className="ml-auto" onClick={() => load(true)} disabled={loading}>
               <RotateCw className={cn('size-4', loading && 'animate-spin')} /> {t('resources.refresh')}
             </Button>
           </div>

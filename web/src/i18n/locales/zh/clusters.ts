@@ -179,6 +179,8 @@ export const zhClusters = {
     allNamespaces: '全部命名空间',
     count_one: '共 {{count}} 个对象',
     count_other: '共 {{count}} 个对象',
+    refreshed_one: '已刷新，共 {{count}} 个对象',
+    refreshed_other: '已刷新，共 {{count}} 个对象',
     refresh: '刷新',
     loading: '加载中…',
     empty: '暂无资源对象,请等待自动同步或点击「同步 / 刷新」。',
