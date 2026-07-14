@@ -96,9 +96,7 @@ export const zhCommon = {
     role: {
       globalAdmin: '全局管理员',
       clusterAdmin: '集群管理员',
-      viewer: '只读用户',
       inspector: '巡检执行者',
-      approver: '审批员',
     },
     userStatus: {
       active: '启用',
@@ -168,8 +166,6 @@ export const zhCommon = {
     silenceNotFound: '静默规则不存在',
     cannotDeleteCurrentUser: '不能删除当前登录用户',
     cannotDeleteLastGlobalAdmin: '不能删除最后一个全局管理员',
-    clusterAdminCannotAssignGlobalAdmin: '集群管理员不能创建或修改全局管理员',
-    clusterAdminCannotManageGlobalAdmin: '集群管理员不能管理全局管理员',
     clusterGrantRequired: '该角色必须至少授权一个集群',
   },
   nav: {

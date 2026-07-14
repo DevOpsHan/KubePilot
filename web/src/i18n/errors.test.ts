@@ -28,8 +28,6 @@ describe('localizeApiError', () => {
     ['告警不存在', 'The alert was not found'],
     ['不能删除当前登录用户', 'The currently signed-in user cannot be deleted'],
     ['不能删除最后一个全局管理员', 'The last global administrator cannot be deleted'],
-    ['集群管理员不能创建或修改全局管理员', 'A cluster administrator cannot create or modify a global administrator'],
-    ['集群管理员不能管理全局管理员', 'A cluster administrator cannot manage a global administrator'],
     ['该角色必须至少授权一个集群', 'This role must be authorized for at least one cluster'],
   ])('将已知服务端中文错误映射为具体英文：%s', async (message, expected) => {
     const { tEn } = await translators()

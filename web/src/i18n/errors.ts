@@ -53,8 +53,6 @@ const knownMessageKeys = {
   '记录不存在': 'errors.notFound',
   '不能删除当前登录用户': 'errors.cannotDeleteCurrentUser',
   '不能删除最后一个全局管理员': 'errors.cannotDeleteLastGlobalAdmin',
-  '集群管理员不能创建或修改全局管理员': 'errors.clusterAdminCannotAssignGlobalAdmin',
-  '集群管理员不能管理全局管理员': 'errors.clusterAdminCannotManageGlobalAdmin',
   '该角色必须至少授权一个集群': 'errors.clusterGrantRequired',
 } as const satisfies Readonly<Record<string, CommonErrorKey>>
 

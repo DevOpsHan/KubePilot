@@ -233,6 +233,7 @@ Health checks in the Compose file also use `localhost` or `127.0.0.1` to access 
 ### Users and Permissions
 
 - Provide global administrator, cluster administrator, and inspection operator roles.
+- Restrict user and role management to global administrators; cluster administrators focus on operating their granted clusters and do not manage users.
 - Grant non-global roles access to one or more clusters.
 - Support user expiration, disabling, mandatory first-login password changes, password resets, and retained soft deletion.
 - Expire login sessions after 30 minutes of inactivity and restart the idle window after each successful authenticated request.

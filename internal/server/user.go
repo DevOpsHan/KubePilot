@@ -39,10 +39,6 @@ func (s *Server) handleListUsers(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
-	users, err = s.filterManageableUsers(c, users)
-	if err != nil {
-		return err
-	}
 	return c.JSON(http.StatusOK, map[string]any{"count": len(users), "users": users, "roles": store.ValidRoles()})
 }
 
@@ -61,7 +57,7 @@ func (s *Server) handleCreateUser(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
-	if err := s.validateUserAssignment(c, nil, req.Role, req.ClusterIDs); err != nil {
+	if err := s.validateUserAssignment(req.Role, req.ClusterIDs); err != nil {
 		return err
 	}
 	user, err := s.store.CreateUser(store.CreateUserInput{
@@ -100,11 +96,9 @@ func (s *Server) handleUpdateUser(c echo.Context) error {
 	}
 	targetRole := target.Role
 	if req.ClusterIDs != nil {
-		if err := s.validateUserAssignment(c, target, targetRole, *req.ClusterIDs); err != nil {
+		if err := s.validateUserAssignment(targetRole, *req.ClusterIDs); err != nil {
 			return err
 		}
-	} else if err := s.requireManageTargetUser(c, target); err != nil {
-		return err
 	}
 	var expiresAt *time.Time
 	if req.ExpiresAt != nil {
@@ -138,13 +132,6 @@ func (s *Server) handleResetUserPassword(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
-	target, err := s.store.GetUser(id)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
-	}
-	if err := s.requireManageTargetUser(c, target); err != nil {
-		return err
-	}
 	user, err := s.store.ResetUserPassword(id)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -174,9 +161,6 @@ func (s *Server) handleDeleteUser(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
-	if err := s.requireManageTargetUser(c, target); err != nil {
-		return err
-	}
 	if target.Role == store.UserRoleGlobalAdmin {
 		count, err := s.store.CountGlobalAdminsExcluding(id)
 		if err != nil {
@@ -193,127 +177,17 @@ func (s *Server) handleDeleteUser(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *Server) validateUserAssignment(c echo.Context, target *store.User, role string, clusterIDs []uint) error {
-	if s.store == nil {
-		return echo.NewHTTPError(http.StatusServiceUnavailable, "数据库未就绪")
-	}
-	actor := currentUser(c)
-	if actor == nil {
-		return echo.NewHTTPError(http.StatusUnauthorized, "请先登录")
-	}
+// validateUserAssignment 校验目标角色的集群授权要求。
+// 用户管理入口 requirePermission(users:manage) 已保证仅全局管理员可达。
+func (s *Server) validateUserAssignment(role string, clusterIDs []uint) error {
 	role = strings.TrimSpace(role)
 	if role == "" {
 		role = store.UserRoleInspector
 	}
-	if actor.Role == store.UserRoleGlobalAdmin {
-		if store.RoleRequiresClusterGrants(role) && len(clusterIDs) == 0 {
-			return echo.NewHTTPError(http.StatusBadRequest, "该角色必须至少授权一个集群")
-		}
-		return nil
-	}
-	if actor.Role != store.UserRoleClusterAdmin {
-		return echo.NewHTTPError(http.StatusForbidden, "当前用户没有权限管理用户")
-	}
-	if role == store.UserRoleGlobalAdmin {
-		return echo.NewHTTPError(http.StatusForbidden, "集群管理员不能创建或修改全局管理员")
-	}
-	if target != nil && target.Role == store.UserRoleGlobalAdmin {
-		return echo.NewHTTPError(http.StatusForbidden, "集群管理员不能管理全局管理员")
-	}
-	if !store.RoleRequiresClusterGrants(role) {
-		return echo.NewHTTPError(http.StatusForbidden, "集群管理员只能管理集群管理员或巡检执行者")
-	}
-	if len(clusterIDs) == 0 {
+	if store.RoleRequiresClusterGrants(role) && len(clusterIDs) == 0 {
 		return echo.NewHTTPError(http.StatusBadRequest, "该角色必须至少授权一个集群")
 	}
-	if err := s.ensureClusterIDsSubset(actor.ID, clusterIDs); err != nil {
-		return err
-	}
 	return nil
-}
-
-func (s *Server) requireManageTargetUser(c echo.Context, target *store.User) error {
-	actor := currentUser(c)
-	if actor == nil {
-		return echo.NewHTTPError(http.StatusUnauthorized, "请先登录")
-	}
-	if actor.Role == store.UserRoleGlobalAdmin {
-		return nil
-	}
-	if actor.Role != store.UserRoleClusterAdmin {
-		return echo.NewHTTPError(http.StatusForbidden, "当前用户没有权限管理用户")
-	}
-	if target == nil || target.Role == store.UserRoleGlobalAdmin {
-		return echo.NewHTTPError(http.StatusForbidden, "集群管理员不能管理全局管理员")
-	}
-	targetIDs, err := s.store.ListUserClusterIDs(target.ID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	if len(targetIDs) == 0 {
-		return echo.NewHTTPError(http.StatusForbidden, "目标用户没有集群授权范围")
-	}
-	return s.ensureClusterIDsSubset(actor.ID, targetIDs)
-}
-
-func (s *Server) ensureClusterIDsSubset(actorID uint, clusterIDs []uint) error {
-	allowed, err := s.store.ListUserClusterIDs(actorID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	allowedSet := make(map[uint]struct{}, len(allowed))
-	for _, id := range allowed {
-		allowedSet[id] = struct{}{}
-	}
-	for _, id := range clusterIDs {
-		if _, ok := allowedSet[id]; !ok {
-			return echo.NewHTTPError(http.StatusForbidden, "不能分配或操作未授权集群")
-		}
-	}
-	return nil
-}
-
-func (s *Server) filterManageableUsers(c echo.Context, users []store.User) ([]store.User, error) {
-	actor := currentUser(c)
-	if actor == nil {
-		return nil, echo.NewHTTPError(http.StatusUnauthorized, "请先登录")
-	}
-	if actor.Role == store.UserRoleGlobalAdmin {
-		return users, nil
-	}
-	if actor.Role != store.UserRoleClusterAdmin {
-		return nil, echo.NewHTTPError(http.StatusForbidden, "当前用户没有权限管理用户")
-	}
-	allowed, err := s.store.ListUserClusterIDs(actor.ID)
-	if err != nil {
-		return nil, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	allowedSet := make(map[uint]struct{}, len(allowed))
-	for _, id := range allowed {
-		allowedSet[id] = struct{}{}
-	}
-	filtered := make([]store.User, 0, len(users))
-	for _, user := range users {
-		if user.Role == store.UserRoleGlobalAdmin {
-			continue
-		}
-		if user.ID == actor.ID || userClusterGrantsWithin(user.ClusterGrants, allowedSet) {
-			filtered = append(filtered, user)
-		}
-	}
-	return filtered, nil
-}
-
-func userClusterGrantsWithin(grants []store.UserClusterGrant, allowed map[uint]struct{}) bool {
-	if len(grants) == 0 {
-		return false
-	}
-	for _, grant := range grants {
-		if _, ok := allowed[grant.ClusterID]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
 func parseUserID(c echo.Context) (uint, error) {

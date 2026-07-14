@@ -99,9 +99,7 @@ export const enCommon = {
     role: {
       globalAdmin: 'Global admin',
       clusterAdmin: 'Cluster admin',
-      viewer: 'Viewer',
       inspector: 'Inspector',
-      approver: 'Approver',
     },
     userStatus: {
       active: 'Active',
@@ -171,8 +169,6 @@ export const enCommon = {
     silenceNotFound: 'The silence rule was not found',
     cannotDeleteCurrentUser: 'The currently signed-in user cannot be deleted',
     cannotDeleteLastGlobalAdmin: 'The last global administrator cannot be deleted',
-    clusterAdminCannotAssignGlobalAdmin: 'A cluster administrator cannot create or modify a global administrator',
-    clusterAdminCannotManageGlobalAdmin: 'A cluster administrator cannot manage a global administrator',
     clusterGrantRequired: 'This role must be authorized for at least one cluster',
   },
   nav: {

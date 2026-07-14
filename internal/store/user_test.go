@@ -169,14 +169,14 @@ func TestUserRolesAndClusterGrants(t *testing.T) {
 	t.Cleanup(func() { _ = st.Close() })
 
 	validRoles := strings.Join(ValidRoles(), ",")
-	if strings.Contains(validRoles, UserRoleViewer) || strings.Contains(validRoles, UserRoleApprover) {
-		t.Fatalf("新角色集合不应继续包含只读观察者或审批人: %s", validRoles)
+	if strings.Contains(validRoles, "viewer") || strings.Contains(validRoles, "approver") {
+		t.Fatalf("有效角色集合不应包含已移除的只读观察者或审批人: %s", validRoles)
 	}
-	if _, err := normalizeRole(UserRoleViewer); err == nil {
-		t.Fatal("不应继续允许创建只读观察者角色")
+	if _, err := normalizeRole("viewer"); err == nil {
+		t.Fatal("不应允许创建已移除的只读观察者角色")
 	}
-	if _, err := normalizeRole(UserRoleApprover); err == nil {
-		t.Fatal("不应继续允许创建审批人角色")
+	if _, err := normalizeRole("approver"); err == nil {
+		t.Fatal("不应允许创建已移除的审批人角色")
 	}
 
 	clusterA, err := st.CreateCluster(CreateClusterInput{Name: "集群 A", Slug: "grant-a", Mode: ClusterModeKubeconfigData})
@@ -297,12 +297,12 @@ func TestRolePermissions(t *testing.T) {
 		{UserRoleGlobalAdmin, PermissionApproveRemediation, true},
 		{UserRoleClusterAdmin, PermissionManageClusters, true},
 		{UserRoleClusterAdmin, PermissionApproveRemediation, true},
-		{UserRoleClusterAdmin, PermissionManageUsers, true},
+		{UserRoleClusterAdmin, PermissionManageUsers, false},
 		{UserRoleClusterAdmin, PermissionManageModels, false},
 		{UserRoleInspector, PermissionRunInspect, true},
 		{UserRoleInspector, PermissionManageClusters, false},
-		{UserRoleViewer, PermissionViewClusters, false},
-		{UserRoleApprover, PermissionApproveRemediation, false},
+		{"viewer", PermissionViewClusters, false},
+		{"approver", PermissionApproveRemediation, false},
 	}
 	for _, tt := range tests {
 		if got := RoleHasPermission(tt.role, tt.permission); got != tt.want {

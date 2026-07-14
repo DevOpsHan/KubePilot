@@ -18,9 +18,7 @@ import (
 const (
 	UserRoleGlobalAdmin  = "global_admin"
 	UserRoleClusterAdmin = "cluster_admin"
-	UserRoleViewer       = "viewer"
 	UserRoleInspector    = "inspector"
-	UserRoleApprover     = "approver"
 )
 
 const (
@@ -101,7 +99,6 @@ func RoleHasPermission(role, permission string) bool {
 			PermissionRunInspect:         {},
 			PermissionViewApprovals:      {},
 			PermissionApproveRemediation: {},
-			PermissionManageUsers:        {},
 			PermissionViewAlerts:         {},
 			PermissionManageAlerts:       {},
 		},
