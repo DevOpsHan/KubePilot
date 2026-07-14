@@ -13,24 +13,8 @@ import { useAuth } from '@/providers/AuthProvider'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 
-const COLLAPSE_KEY = 'aiops-nav-collapsed'
+// 运维中心默认折叠;不再持久化展开态,每次进入(登录/刷新)都回到折叠。
 const DEFAULT_COLLAPSED: Record<CollapsibleNavKey, boolean> = { ops: true }
-
-function readCollapsedGroups(): Record<CollapsibleNavKey, boolean> {
-  try {
-    const stored = localStorage.getItem(COLLAPSE_KEY)
-    if (!stored) return DEFAULT_COLLAPSED
-
-    const parsed: unknown = JSON.parse(stored)
-    if (typeof parsed === 'object' && parsed !== null && 'ops' in parsed
-      && typeof parsed.ops === 'boolean') {
-      return { ops: parsed.ops }
-    }
-  } catch {
-    // 存储不可用或内容无效时使用默认折叠状态。
-  }
-  return DEFAULT_COLLAPSED
-}
 
 function CountBadge({ n }: { n: number }) {
   if (n <= 0) return null
@@ -46,14 +30,10 @@ export function Sidebar({ alertCount, pendingCount }: { alertCount: number; pend
   const { t } = useTranslation('common')
   const { pathname } = useLocation()
 
-  const [collapsed, setCollapsed] = useState<Record<CollapsibleNavKey, boolean>>(readCollapsedGroups)
+  const [collapsed, setCollapsed] = useState<Record<CollapsibleNavKey, boolean>>(() => ({ ...DEFAULT_COLLAPSED }))
 
   function toggleGroup(key: CollapsibleNavKey) {
-    setCollapsed((prev) => {
-      const next = { ...prev, [key]: !prev[key] }
-      try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next)) } catch { /* ignore */ }
-      return next
-    })
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))
   }
 
   const badgeOf = (item: NavItem) => (item.badge === 'alerts' ? alertCount : item.badge === 'pending' ? pendingCount : 0)
