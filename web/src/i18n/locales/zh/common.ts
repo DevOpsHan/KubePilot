@@ -173,6 +173,7 @@ export const zhCommon = {
     clusterGrantRequired: '该角色必须至少授权一个集群',
   },
   nav: {
+    home: '首页',
     dashboard: '总览',
     chat: '智能对话',
     clusters: '集群管理',
@@ -186,6 +187,7 @@ export const zhCommon = {
     ops: '运维中心',
   },
   title: {
+    home: '首页',
     dashboard: '运维总览',
     chat: '智能对话',
     clusters: 'Kubernetes 集群',

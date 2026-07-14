@@ -86,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setExpiredReason(null)
     setLoginNoticeState(notice)
     clearIdle()
-    if (window.location.hash !== '#/dashboard') window.location.hash = '#/dashboard'
+    if (window.location.hash !== '#/home') window.location.hash = '#/home'
   }, [clearIdle])
 
   const resetIdle = useCallback(() => {

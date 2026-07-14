@@ -176,6 +176,7 @@ export const enCommon = {
     clusterGrantRequired: 'This role must be authorized for at least one cluster',
   },
   nav: {
+    home: 'Home',
     dashboard: 'Overview',
     chat: 'AI Chat',
     clusters: 'Clusters',
@@ -189,6 +190,7 @@ export const enCommon = {
     ops: 'Operations',
   },
   title: {
+    home: 'Home',
     dashboard: 'Ops Overview',
     chat: 'AI Chat',
     clusters: 'Kubernetes Clusters',

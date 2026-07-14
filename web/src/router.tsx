@@ -2,6 +2,7 @@ import { createHashRouter, Navigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { useAuth } from '@/providers/AuthProvider'
+import { HomePage } from '@/pages/HomePage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { ChatPage } from '@/pages/ChatPage'
 import { ClustersPage } from '@/pages/ClustersPage'
@@ -18,7 +19,7 @@ import { InspectionSettingsPage } from '@/pages/InspectionSettingsPage'
 // 权限守卫:无权限则回到总览
 function Guard({ permission, children }: { permission?: string; children: ReactNode }) {
   const { can } = useAuth()
-  if (permission && !can(permission)) return <Navigate to="/dashboard" replace />
+  if (permission && !can(permission)) return <Navigate to="/home" replace />
   return <>{children}</>
 }
 
@@ -27,7 +28,8 @@ export const router = createHashRouter([
     path: '/',
     element: <AppLayout />,
     children: [
-      { index: true, element: <Navigate to="/dashboard" replace /> },
+      { index: true, element: <Navigate to="/home" replace /> },
+      { path: 'home', element: <HomePage /> },
       { path: 'dashboard', element: <DashboardPage /> },
       { path: 'chat', element: <ChatPage /> },
       { path: 'clusters', element: <ClustersPage /> },
@@ -40,7 +42,7 @@ export const router = createHashRouter([
       { path: 'audit', element: <Guard permission="approvals:view"><AuditPage /></Guard> },
       { path: 'users', element: <Guard permission="users:manage"><UsersPage /></Guard> },
       { path: 'inspection-settings', element: <Guard permission="inspection:manage"><InspectionSettingsPage /></Guard> },
-      { path: '*', element: <Navigate to="/dashboard" replace /> },
+      { path: '*', element: <Navigate to="/home" replace /> },
     ],
   },
 ])

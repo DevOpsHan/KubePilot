@@ -259,6 +259,26 @@ body {
 }
 .login-float { animation: login-float 9s ease-in-out infinite; }
 
+/* 首页主视觉:品牌闪电脉冲发光(呼应 KubePilot logo) */
+@keyframes home-pulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 12px 30px rgba(124, 58, 237, 0.45)); }
+  50% { transform: scale(1.05); filter: drop-shadow(0 16px 46px rgba(124, 58, 237, 0.72)); }
+}
+.home-pulse { transform-box: fill-box; transform-origin: center; animation: home-pulse 3.6s ease-in-out infinite; }
+
+/* 首页主视觉:轨道环绕旋转(象征多集群绕智能中枢运转) */
+@keyframes home-orbit { to { transform: rotate(360deg); } }
+.home-orbit-cw { transform-origin: center; animation: home-orbit 26s linear infinite; }
+.home-orbit-ccw { transform-origin: center; animation: home-orbit 34s linear infinite reverse; }
+
+/* 首页主视觉:光晕呼吸 */
+@keyframes home-glow {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.62; transform: scale(1.12); }
+}
+.home-glow { animation: home-glow 5.5s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
-  .login-blob, .login-grid, .login-float { animation: none; }
+  .login-blob, .login-grid, .login-float,
+  .home-pulse, .home-orbit-cw, .home-orbit-ccw, .home-glow { animation: none; }
 }

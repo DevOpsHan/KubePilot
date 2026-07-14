@@ -1,10 +1,11 @@
 import {
-  LayoutDashboard, MessageSquare, Boxes, Bot, Activity,
+  Home, LayoutDashboard, MessageSquare, Boxes, Bot, Activity,
   TriangleAlert, ClipboardCheck, FileText, Users, Zap, ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
 
 export type NavKey =
+  | 'home'
   | 'dashboard'
   | 'chat'
   | 'clusters'
@@ -18,6 +19,7 @@ export type NavKey =
   | 'ops'
 
 export type TitleKey =
+  | 'home'
   | 'dashboard'
   | 'chat'
   | 'clusters'
@@ -38,6 +40,7 @@ type NavTranslationMap = { readonly [Key in NavKey]: `nav.${Key}` }
 type TitleTranslationMap = { readonly [Key in TitleKey]: `title.${Key}` }
 
 export const navTranslationKeys = {
+  home: 'nav.home',
   dashboard: 'nav.dashboard',
   chat: 'nav.chat',
   clusters: 'nav.clusters',
@@ -52,6 +55,7 @@ export const navTranslationKeys = {
 } as const satisfies NavTranslationMap
 
 export const titleTranslationKeys = {
+  home: 'title.home',
   dashboard: 'title.dashboard',
   chat: 'title.chat',
   clusters: 'title.clusters',
@@ -97,6 +101,7 @@ export const navGroups: NavGroup[] = [
   {
     key: 'main',
     items: [
+      { to: '/home', key: 'home', icon: Home },
       { to: '/dashboard', key: 'dashboard', icon: LayoutDashboard },
       { to: '/chat', key: 'chat', icon: MessageSquare },
       { to: '/clusters', key: 'clusters', icon: Boxes },
@@ -128,6 +133,7 @@ export const navItems: NavItem[] = navGroups.flatMap((g) => g.items)
 
 // 路径(一级)→ 顶栏面包屑标题的 i18n key(title.*)
 export const viewTitleKeys: Record<string, TitleKey> = {
+  '/home': 'home',
   '/dashboard': 'dashboard',
   '/chat': 'chat',
   '/clusters': 'clusters',

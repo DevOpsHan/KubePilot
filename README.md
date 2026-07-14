@@ -37,6 +37,7 @@ The sidebar and command palette are permission-aware. Users see only the entries
 
 ### Navigation
 
+- **Home** (`/home`): the default landing page after sign-in, a centered welcome with a hand-drawn animated brand-bolt illustration (orbiting rings, pulsing glow) that echoes the login page's brand aurora background; its entry sits at the very top of the sidebar.
 - **Overview** (`/dashboard`): summarizes connected and healthy clusters, pending approvals, active alerts, synchronization timing, recent activity, and the active AI model.
 - **AI Chat** (`/chat`): accepts natural-language operations questions, queries cluster resources and status, reads Pod logs and live evidence, runs read-only diagnostic commands inside containers, starts inspections, and returns evidence-backed diagnosis and remediation guidance.
 - **Clusters** (`/clusters`): imports and manages kubeconfig-based clusters, runs synchronization, and continuously probes connectivity so a disconnected cluster is downgraded immediately. The cluster detail view is a single resource browser: a **Primary information** group (basic information, node status, synchronization status, namespaces, events, CRDs) sits above the grouped resources (workloads, network, configuration, storage), each filtered by namespace and name and refreshable on demand. Any object opens a side panel with its details and live YAML, and Pods additionally expose live logs and an interactive terminal (exec).
