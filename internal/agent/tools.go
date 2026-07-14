@@ -4,8 +4,10 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"aiops/internal/ai"
 	"aiops/internal/clusterruntime"
@@ -16,6 +18,10 @@ import (
 	"aiops/internal/store"
 )
 
+const defaultDiagnosticExecTimeout = 15 * time.Second
+
+type execCaptureFunc func(context.Context, *collector.Collector, string, string, string, []string) (string, string, error)
+
 // ToolExecutor 执行 Agent 工具:只读查询 + 修复提议(只建审批工单,不直接执行)。
 type ToolExecutor struct {
 	collector        *collector.Collector
@@ -24,6 +30,9 @@ type ToolExecutor struct {
 	remediator       *remediate.Executor
 	defaultClusterID uint
 	runtimeManager   *clusterruntime.Manager
+	execCapture      execCaptureFunc
+	// diagnosticExecTimeout 为 AI 非交互诊断设置独立硬超时,避免命令或连接无限占用资源。
+	diagnosticExecTimeout time.Duration
 }
 
 // NewToolExecutor 创建工具执行器。store/remediator 用于"修复提议"建工单与开关校验。
@@ -35,6 +44,10 @@ func NewToolExecutor(col *collector.Collector, engine *inspect.Engine, st *store
 		remediator:       rem,
 		defaultClusterID: defaultClusterID,
 		runtimeManager:   runtimeManager,
+		execCapture: func(ctx context.Context, col *collector.Collector, namespace, pod, container string, command []string) (string, string, error) {
+			return col.ExecCapture(ctx, namespace, pod, container, command)
+		},
+		diagnosticExecTimeout: defaultDiagnosticExecTimeout,
 	}
 }
 
@@ -814,15 +827,35 @@ func (e *ToolExecutor) executeExecDiagnostic(ctx context.Context, clusterID uint
 	if deny != "" {
 		return deny
 	}
-	stdout, stderr, err := target.Runtime.Collector.ExecCapture(ctx, a.Namespace, a.Pod, a.Container, a.Command)
-
 	cmdText := strings.Join(a.Command, " ")
+	e.auditAIExecStart(target.ID, identity, a.Namespace+"/"+a.Pod, cmdText)
+
+	timeout := e.diagnosticExecTimeout
+	if timeout <= 0 {
+		timeout = defaultDiagnosticExecTimeout
+	}
+	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	execCapture := e.execCapture
+	if execCapture == nil {
+		execCapture = func(ctx context.Context, col *collector.Collector, namespace, pod, container string, command []string) (string, string, error) {
+			return col.ExecCapture(ctx, namespace, pod, container, command)
+		}
+	}
+	stdout, stderr, err := execCapture(execCtx, target.Runtime.Collector, a.Namespace, a.Pod, a.Container, a.Command)
+	timedOut := errors.Is(err, context.DeadlineExceeded) || errors.Is(execCtx.Err(), context.DeadlineExceeded)
+
 	auditResult := "成功"
-	if err != nil {
+	if timedOut {
+		auditResult = fmt.Sprintf("超时:超过 %s", timeout)
+	} else if err != nil {
 		auditResult = "失败: " + err.Error()
 	}
 	e.auditAIExec(target.ID, identity, a.Namespace+"/"+a.Pod, cmdText, auditResult)
 
+	if timedOut {
+		return fmt.Sprintf("命令执行超时(%s/%s $ %s):已超过 %s 的安全上限", a.Namespace, a.Pod, cmdText, timeout)
+	}
 	if err != nil {
 		return fmt.Sprintf("命令执行失败(%s/%s $ %s): %s", a.Namespace, a.Pod, cmdText, err.Error())
 	}
@@ -838,6 +871,20 @@ func (e *ToolExecutor) executeExecDiagnostic(ctx context.Context, clusterID uint
 		out.WriteString("(命令无输出)")
 	}
 	return out.String()
+}
+
+// auditAIExecStart 在命令真正发往集群前落一条开始记录,确保卡死、断连等场景仍可追踪。
+func (e *ToolExecutor) auditAIExecStart(clusterID uint, identity UserIdentity, target, command string) {
+	if e.store == nil {
+		return
+	}
+	_ = e.store.AddAudit(clusterID, &store.AuditLog{
+		Action:   "ai:exec_diagnostic:start",
+		Operator: aiOperatorLabel(identity),
+		Target:   target,
+		Detail:   command,
+		Result:   "开始",
+	})
 }
 
 // auditAIExec 记录 AI 发起的 exec 诊断审计,操作者标记为 AI + 触发用户。

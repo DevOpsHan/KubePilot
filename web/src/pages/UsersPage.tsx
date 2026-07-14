@@ -69,6 +69,7 @@ function RequiredFieldLabel({ children }: { children: ReactNode }) {
 type UserValidationKey =
   | 'users.validation.username'
   | 'users.validation.clusters'
+  | 'users.validation.role'
   | 'users.validation.editRequired'
 
 interface UserFormError {
@@ -92,14 +93,15 @@ export function UsersPage() {
   const [formError, setFormError] = useState<UserFormError | null>(null)
 
   const [form, setForm] = useState({ username: '', displayName: '', email: '', role: 'cluster_admin', expiresIn: '3m', clusterIds: [] as string[] })
-  const [editForm, setEditForm] = useState({ displayName: '', email: '', expiresAt: '', clusterIds: [] as string[] })
+  const [editForm, setEditForm] = useState({ displayName: '', email: '', role: '', expiresAt: '', neverExpires: false, clusterIds: [] as string[] })
 
   const language = normalizeLanguage(i18n.resolvedLanguage ?? i18n.language)
   const localization = useRef({ tSettings, tCommon, language })
   localization.current = { tSettings, tCommon, language }
   const roleOptions = roles.length ? roles : ['global_admin', 'cluster_admin']
   const formNeedsClusters = roleNeedsClusters(form.role)
-  const editingNeedsClusters = editing && roleNeedsClusters(editing.role)
+  const editingNeedsClusters = editing && roleNeedsClusters(editForm.role)
+  const editingLegacyRole = Boolean(editing && editForm.role && !roleOptions.includes(editForm.role))
   const roleText = (role: string) => localizeStatus(tCommon, 'role', role)
   const statusText = (target: any) => isExpired(target)
     ? tSettings('users.expired')
@@ -157,18 +159,28 @@ export function UsersPage() {
   function startEdit(u: any) {
     setFormError(null)
     setEditing(u)
-    setEditForm({ displayName: u.display_name || u.username, email: u.email || '', expiresAt: toDateInput(u.expires_at), clusterIds: userClusterIds(u).map(String) })
+    setEditForm({
+      displayName: u.display_name || u.username,
+      email: u.email || '',
+      role: u.role || '',
+      expiresAt: toDateInput(u.expires_at),
+      neverExpires: !u.expires_at,
+      clusterIds: userClusterIds(u).map(String),
+    })
   }
 
   async function submitEdit() {
     if (!editing || saving) return
     setFormError(null)
-    if (!editForm.displayName.trim() || !editForm.expiresAt) { setFormError({ key: 'users.validation.editRequired' }); return }
+    if (!editForm.displayName.trim() || (!editForm.neverExpires && !editForm.expiresAt)) { setFormError({ key: 'users.validation.editRequired' }); return }
+    if (!roleOptions.includes(editForm.role)) { setFormError({ key: 'users.validation.role' }); return }
     if (editingNeedsClusters && !numericIds(editForm.clusterIds).length) { setFormError({ key: 'users.validation.clusters' }); return }
     setSaving(true)
     try {
       await updateUser(editing.id, {
-        display_name: editForm.displayName.trim(), email: editForm.email.trim(), expires_at: editForm.expiresAt,
+        display_name: editForm.displayName.trim(), email: editForm.email.trim(),
+        ...(editForm.neverExpires ? { never_expires: true } : { never_expires: false, expires_at: editForm.expiresAt }),
+        role: editForm.role,
         cluster_ids: editingNeedsClusters ? numericIds(editForm.clusterIds) : [],
       })
       setEditing(null); await loadUsers(); notify.success(localization.current.tSettings('users.feedback.updated'))
@@ -340,7 +352,38 @@ export function UsersPage() {
             <div className="flex-1 space-y-4 overflow-y-auto px-4 py-2">
               <div className="space-y-1.5"><RequiredFieldLabel>{tSettings('users.fields.name')}</RequiredFieldLabel><Input required value={editForm.displayName} onChange={(e) => setEditForm({ ...editForm, displayName: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>{tSettings('users.fields.email')}</Label><Input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} placeholder={tSettings('users.placeholders.editEmail')} /></div>
-              <div className="space-y-1.5"><RequiredFieldLabel>{tSettings('users.fields.expiresAt')}</RequiredFieldLabel><Input required type="date" value={editForm.expiresAt} onChange={(e) => setEditForm({ ...editForm, expiresAt: e.target.value })} /></div>
+              <div className="space-y-1.5">
+                <RequiredFieldLabel>{tSettings('users.fields.role')}</RequiredFieldLabel>
+                <Select value={editForm.role} onValueChange={(role) => setEditForm({ ...editForm, role, clusterIds: roleNeedsClusters(role) ? editForm.clusterIds : [] })}>
+                  <SelectTrigger aria-label={tSettings('users.fields.role')} className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {editingLegacyRole && <SelectItem value={editForm.role} disabled>{tSettings('users.legacyRole', { role: editForm.role })}</SelectItem>}
+                    {roleOptions.map((role) => <SelectItem key={role} value={role}>{roleText(role)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {editingLegacyRole && <div className="rounded-lg bg-warning-weak px-3 py-2 text-xs text-warning-fg">{tSettings('users.legacyRole', { role: editForm.role })}</div>}
+              </div>
+              <div className="space-y-2">
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={editForm.neverExpires}
+                    onCheckedChange={(checked) => setEditForm({ ...editForm, neverExpires: checked === true })}
+                  />
+                  <span>{tSettings('users.fields.neverExpires')}</span>
+                </label>
+                <div className="space-y-1.5">
+                  {editForm.neverExpires
+                    ? <Label>{tSettings('users.fields.expiresAt')}</Label>
+                    : <RequiredFieldLabel>{tSettings('users.fields.expiresAt')}</RequiredFieldLabel>}
+                  <Input
+                    required={!editForm.neverExpires}
+                    disabled={editForm.neverExpires}
+                    type="date"
+                    value={editForm.expiresAt}
+                    onChange={(e) => setEditForm({ ...editForm, expiresAt: e.target.value })}
+                  />
+                </div>
+              </div>
               {editingNeedsClusters && (
                 <div className="space-y-2">
                   <RequiredFieldLabel>{tSettings('users.fields.clusters')}</RequiredFieldLabel>

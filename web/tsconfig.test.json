@@ -12,7 +12,7 @@
     "strict": true,
     "jsx": "react-jsx",
     "moduleDetection": "force",
-    "types": ["node", "vitest/globals"],
+    "types": ["node", "vite/client", "vitest/globals"],
     "paths": { "@/*": ["./src/*"] }
   },
   "include": [

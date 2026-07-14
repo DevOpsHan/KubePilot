@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -36,7 +37,10 @@ type Collector struct {
 	dynamicClient dynamic.Interface
 	// restConfig 保存构建客户端时的 REST 配置,交互式能力(exec 终端 / 日志流)
 	// 需要它直接与 API Server 建立长连接;通过 fake client 构造时可能为 nil。
-	restConfig *rest.Config
+	restConfig    *rest.Config
+	logClientOnce sync.Once
+	logClient     kubernetes.Interface
+	logClientErr  error
 }
 
 const (
@@ -62,7 +66,14 @@ func NewWithMetricsAndDynamic(cs kubernetes.Interface, metricsClient metricsclie
 // NewWithMetricsDynamicAndConfig 在 NewWithMetricsAndDynamic 基础上额外保存 REST 配置,
 // 以支持 exec 终端与日志流等需要直连 API Server 的交互式能力。
 func NewWithMetricsDynamicAndConfig(cs kubernetes.Interface, metricsClient metricsclientset.Interface, dynamicClient dynamic.Interface, cfg *rest.Config) *Collector {
-	return &Collector{clientset: cs, metricsClient: metricsClient, dynamicClient: dynamicClient, restConfig: cfg}
+	var interactiveConfig *rest.Config
+	if cfg != nil {
+		interactiveConfig = rest.CopyConfig(cfg)
+		// 普通 list/get 请求仍使用构建 clientset 时的短超时；日志和 exec
+		// 是由 Context 管理生命周期的长连接，不能继承 HTTP Client 整体超时。
+		interactiveConfig.Timeout = 0
+	}
+	return &Collector{clientset: cs, metricsClient: metricsClient, dynamicClient: dynamicClient, restConfig: interactiveConfig}
 }
 
 // Ping 对 Kubernetes API Server 执行一次轻量连通性检查。
@@ -97,17 +108,26 @@ func NewClientset(kubeconfigPath string) (kubernetes.Interface, string, error) {
 	return cs, source, nil
 }
 
-// NewClientsets 构建 K8S 核心客户端与 metrics 客户端。
-func NewClientsets(kubeconfigPath string) (kubernetes.Interface, metricsclientset.Interface, dynamic.Interface, string, error) {
+// NewClientsetsWithConfig 构建 K8S 核心、metrics、动态客户端并返回 REST 配置。
+// REST 配置供默认运行时创建日志流和 exec 等交互式连接。
+func NewClientsetsWithConfig(kubeconfigPath string) (kubernetes.Interface, metricsclientset.Interface, dynamic.Interface, *rest.Config, string, error) {
 	cfg, source, err := NewRestConfig(kubeconfigPath)
 	if err != nil {
-		return nil, nil, nil, "", err
+		return nil, nil, nil, nil, "", err
 	}
 	cs, metricsClient, dynamicClient, err := newClientsetsFromConfig(cfg)
 	if err != nil {
-		return nil, nil, nil, "", err
+		return nil, nil, nil, nil, "", err
 	}
-	return cs, metricsClient, dynamicClient, source, nil
+	return cs, metricsClient, dynamicClient, cfg, source, nil
+
+}
+
+// NewClientsets 构建 K8S 核心客户端与 metrics 客户端。
+// 保留旧签名供现有调用方使用；需要交互式能力时应调用 NewClientsetsWithConfig。
+func NewClientsets(kubeconfigPath string) (kubernetes.Interface, metricsclientset.Interface, dynamic.Interface, string, error) {
+	cs, metricsClient, dynamicClient, _, source, err := NewClientsetsWithConfig(kubeconfigPath)
+	return cs, metricsClient, dynamicClient, source, err
 }
 
 // NewClientsetsFromKubeconfigFile 从指定 kubeconfig 文件构建客户端。

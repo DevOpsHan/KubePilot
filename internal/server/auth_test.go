@@ -315,7 +315,11 @@ func attachServerTestAdminSession(t *testing.T, st *store.Store, req *http.Reque
 
 func attachServerTestSession(t *testing.T, st *store.Store, req *http.Request, userID uint) {
 	t.Helper()
-	token, _, err := st.CreateAuthSession(userID, time.Hour)
+	user, err := st.GetUser(userID)
+	if err != nil {
+		t.Fatalf("读取测试会话用户失败: %v", err)
+	}
+	token, _, err := st.CreateAuthSession(user, time.Hour)
 	if err != nil {
 		t.Fatalf("创建测试会话失败: %v", err)
 	}
@@ -331,4 +335,27 @@ func authCookieFromRecorder(t *testing.T, rec *httptest.ResponseRecorder) *http.
 	}
 	t.Fatalf("响应缺少认证 Cookie: %s", rec.Body.String())
 	return nil
+}
+
+func TestAuthSessionFailureStatus(t *testing.T) {
+	tests := []struct {
+		name                string
+		err                 error
+		afterPasswordChange bool
+		want                int
+	}{
+		{name: "登录快照失效", err: store.ErrInvalidCredentials, want: http.StatusUnauthorized},
+		{name: "改密后快照失效", err: store.ErrInvalidCredentials, afterPasswordChange: true, want: http.StatusConflict},
+		{name: "用户停用", err: store.ErrUserDisabled, want: http.StatusForbidden},
+		{name: "用户过期", err: store.ErrUserExpired, want: http.StatusForbidden},
+		{name: "遗留角色", err: store.ErrUserRoleRequiresMigration, want: http.StatusForbidden},
+		{name: "数据库错误", err: fmt.Errorf("database unavailable"), want: http.StatusInternalServerError},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := authSessionFailureStatus(tc.err, tc.afterPasswordChange); got != tc.want {
+				t.Fatalf("会话签发错误状态不正确: got=%d want=%d", got, tc.want)
+			}
+		})
+	}
 }

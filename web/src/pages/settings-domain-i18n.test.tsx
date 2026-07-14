@@ -430,10 +430,68 @@ describe('用户管理国际化', () => {
     expectRedRequiredMarker(editDialog, '授权集群')
   })
 
+  it('编辑用户时可显式修改角色并提交匹配的集群授权', async () => {
+    await withSelectDomSupport(async () => {
+      const user = userEvent.setup()
+      await renderPage(<UsersPage />)
+      await screen.findByRole('heading', { name: '用户管理' })
+
+      await user.click(screen.getByRole('button', { name: '编辑' }))
+      const dialog = await screen.findByRole('dialog')
+      const roleSelect = within(dialog).getByRole('combobox', { name: '角色' })
+      roleSelect.focus()
+      await user.keyboard('{Enter}{ArrowUp}{Enter}')
+      await user.click(within(dialog).getByRole('button', { name: '确认' }))
+
+      await waitFor(() => expect(updateUser).toHaveBeenCalledWith(userRecord.id, expect.objectContaining({
+        role: 'global_admin',
+        cluster_ids: [],
+      })))
+    })
+  })
+
+  it('编辑无失效日期用户时可保留永不过期并明确提交', async () => {
+    vi.mocked(listUsers).mockResolvedValueOnce({
+      users: [{ ...userRecord, expires_at: null }],
+      roles: ['global_admin', 'cluster_admin'],
+    })
+    const user = userEvent.setup()
+    await renderPage(<UsersPage />)
+    await screen.findByRole('heading', { name: '用户管理' })
+
+    await user.click(screen.getByRole('button', { name: '编辑' }))
+    const dialog = await screen.findByRole('dialog')
+    const neverExpires = within(dialog).getByRole('checkbox', { name: '永不过期' })
+    expect(neverExpires).toBeChecked()
+    expect(dialog.querySelector('input[type="date"]')).toBeDisabled()
+    await user.click(within(dialog).getByRole('button', { name: '确认' }))
+
+    await waitFor(() => expect(updateUser).toHaveBeenCalledWith(userRecord.id, expect.objectContaining({
+      never_expires: true,
+    })))
+  })
+
+  it('遗留角色必须在编辑抽屉中明确重新分配', async () => {
+    vi.mocked(listUsers).mockResolvedValueOnce({
+      users: [{ ...userRecord, role: 'inspector', cluster_grants: [] }],
+      roles: ['global_admin', 'cluster_admin'],
+    })
+    const user = userEvent.setup()
+    await renderPage(<UsersPage />)
+    await screen.findByRole('heading', { name: '用户管理' })
+
+    await user.click(screen.getByRole('button', { name: '编辑' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getAllByText('inspector（已移除，请重新分配角色）')).not.toHaveLength(0)
+    await user.click(within(dialog).getByRole('button', { name: '确认' }))
+    expect(await within(dialog).findByText('请选择一个当前支持的角色')).toBeInTheDocument()
+    expect(updateUser).not.toHaveBeenCalled()
+  })
+
   it('英文确认框包含原始用户名，并精确本地化管理员保护错误', async () => {
     confirmAction.mockResolvedValue(true)
     vi.mocked(deleteUser).mockRejectedValueOnce({
-      response: { status: 400, data: { error: '不能删除最后一个全局管理员' } },
+      response: { status: 400, data: { error: '至少必须保留一个启用且永不过期的全局管理员' } },
     })
     const user = userEvent.setup()
     await renderPage(<UsersPage />, 'en')
@@ -457,7 +515,7 @@ describe('用户管理国际化', () => {
       tone: 'danger',
     })
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith(
-      'The last global administrator cannot be deleted',
+      'At least one active, non-expiring global administrator must remain',
     ))
   })
 

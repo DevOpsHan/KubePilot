@@ -199,6 +199,7 @@ export const enSettings = {
     expired: 'Expired',
     allClusters: 'All clusters',
     clusterFallback: 'Cluster {{id}}',
+    legacyRole: '{{role}} (removed; assign a supported role)',
     expiry: {
       threeMonths: '3 months',
       sixMonths: '6 months',
@@ -242,6 +243,7 @@ export const enSettings = {
       expiry: 'Expiration',
       clusters: 'Authorized clusters',
       expiresAt: 'Expiration date',
+      neverExpires: 'Never expires',
       status: 'User status',
       lastLogin: 'Last login',
       passwordAttemptedAt: 'Last password attempt',
@@ -259,6 +261,7 @@ export const enSettings = {
     validation: {
       username: 'Username is required',
       clusters: 'Select at least one authorized cluster',
+      role: 'Select a currently supported role',
       editRequired: 'Name and expiration date are required',
     },
     confirmations: {

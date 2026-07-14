@@ -62,6 +62,7 @@ interface Snapshot {
 }
 
 const NS_ALL = '__all__'
+const SNAPSHOT_PAGE_SIZE = 200
 
 function kindOf(resource: string): string {
   return RESOURCE_KIND[resource] || resource
@@ -99,6 +100,9 @@ export function ResourceBrowser({ clusterId, basicPanel, nodesPanel, syncPanel }
   const [selected, setSelected] = useState('basic')
   const [rows, setRows] = useState<Snapshot[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const [generation, setGeneration] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [nsFilter, setNsFilter] = useState(NS_ALL)
   const [nameFilter, setNameFilter] = useState('')
@@ -108,6 +112,7 @@ export function ResourceBrowser({ clusterId, basicPanel, nodesPanel, syncPanel }
   const [yamlLoading, setYamlLoading] = useState(false)
   const [yamlError, setYamlError] = useState<string | null>(null)
   const listSeq = useRef(0)
+  const yamlSeq = useRef(0)
 
   const primaryView = isPrimaryView(selected)
   const isPod = selected === 'pods'
@@ -119,14 +124,24 @@ export function ResourceBrowser({ clusterId, basicPanel, nodesPanel, syncPanel }
     if (!clusterId || isPrimaryView(selected)) return
     const seq = ++listSeq.current
     setLoading(true)
+    setLoadingMore(false)
+    setHasMore(false)
+    setGeneration('')
     setError(null)
+    if (!manual) setRows([])
     const minSpin = manual ? new Promise((resolve) => setTimeout(resolve, 400)) : Promise.resolve()
     try {
-      const result = await listClusterResourceSnapshots(clusterId, selected)
+      const result = await listClusterResourceSnapshots(clusterId, selected, {
+        offset: 0,
+        limit: SNAPSHOT_PAGE_SIZE,
+      })
+      if (seq !== listSeq.current) return
+      const snapshots: Snapshot[] = result.snapshots || []
       await minSpin
       if (seq === listSeq.current) {
-        const snapshots = result.snapshots || []
         setRows(snapshots)
+        setGeneration(result.generation || '')
+        setHasMore(snapshots.length === SNAPSHOT_PAGE_SIZE)
         if (manual) notify.success(t('resources.refreshed', { count: snapshots.length }))
       }
     } catch (e) {
@@ -137,9 +152,44 @@ export function ResourceBrowser({ clusterId, basicPanel, nodesPanel, syncPanel }
     }
   }, [clusterId, selected, t])
 
-  useEffect(() => { load() }, [load])
+  const loadMore = useCallback(async () => {
+    if (!clusterId || isPrimaryView(selected) || loading || loadingMore || !hasMore) return
+    const seq = ++listSeq.current
+    const offset = rows.length
+    setLoadingMore(true)
+    setError(null)
+    try {
+      const result = await listClusterResourceSnapshots(clusterId, selected, {
+        offset,
+        limit: SNAPSHOT_PAGE_SIZE,
+        generation,
+      })
+      if (seq !== listSeq.current) return
+      const snapshots: Snapshot[] = result.snapshots || []
+      setRows((current) => [...current, ...snapshots])
+      setHasMore(snapshots.length === SNAPSHOT_PAGE_SIZE)
+    } catch (e) {
+      const err = e as { response?: { status?: number; data?: { code?: string; error?: string } }; message?: string }
+      if (seq === listSeq.current && err.response?.status === 409 && err.response.data?.code === 'snapshot_generation_changed') {
+        await load()
+      } else if (seq === listSeq.current) {
+        setError(err.response?.data?.error || err.message || t('resources.loadFailed'))
+      }
+    } finally {
+      if (seq === listSeq.current) setLoadingMore(false)
+    }
+  }, [clusterId, generation, hasMore, load, loading, loadingMore, rows.length, selected, t])
+
+  useEffect(() => {
+    void load()
+    return () => { listSeq.current += 1 }
+  }, [load])
+  useEffect(() => () => { yamlSeq.current += 1 }, [])
   // 切换资源类型时重置筛选,避免残留上一个类型的命名空间/名称条件。
-  useEffect(() => { setNsFilter(NS_ALL); setNameFilter('') }, [selected])
+  useEffect(() => {
+    setNsFilter(NS_ALL)
+    setNameFilter('')
+  }, [clusterId, selected])
 
   const namespaces = useMemo(() => {
     const set = new Set<string>()
@@ -156,11 +206,15 @@ export function ResourceBrowser({ clusterId, basicPanel, nodesPanel, syncPanel }
 
   // 打开详情抽屉;进入抽屉即预取 YAML,确保切到 YAML 分页立即有内容。
   const openDetail = useCallback(async (row: Snapshot, tab: DrawerTab = 'detail') => {
+    const seq = ++yamlSeq.current
     setDetail(row)
     setDrawerTab(tab)
     setYaml('')
     setYamlError(null)
-    if (!clusterId) return
+    if (!clusterId) {
+      setYamlLoading(false)
+      return
+    }
     setYamlLoading(true)
     try {
       const result = await getClusterResourceObject(clusterId, {
@@ -169,12 +223,14 @@ export function ResourceBrowser({ clusterId, basicPanel, nodesPanel, syncPanel }
         namespace: row.namespace,
         name: row.name,
       })
-      setYaml(result.yaml || '')
+      if (seq === yamlSeq.current) setYaml(result.yaml || '')
     } catch (e) {
       const err = e as { response?: { data?: { error?: string } }; message?: string }
-      setYamlError(err.response?.data?.error || err.message || t('resources.yamlFailed'))
+      if (seq === yamlSeq.current) {
+        setYamlError(err.response?.data?.error || err.message || t('resources.yamlFailed'))
+      }
     } finally {
-      setYamlLoading(false)
+      if (seq === yamlSeq.current) setYamlLoading(false)
     }
   }, [clusterId, t])
 
@@ -198,14 +254,25 @@ export function ResourceBrowser({ clusterId, basicPanel, nodesPanel, syncPanel }
   // 详情抽屉是否为 Pod(以对象自身的 resource_name 判断,而非当前左栏选中项)。
   const detailIsPod = detail?.resource_name === 'pods'
   // 列跨度:命名空间列可隐藏,Pod 多一列操作。
-  const colSpan = 4 + (clusterScoped ? 0 : 1) + (isPod ? 1 : 0)
+  const colSpan = 5 + (clusterScoped ? 0 : 1) + (isPod ? 1 : 0)
 
   // 左列导航项统一样式。
   const navButton = (key: string, label: string) => (
     <button
       key={key}
       type="button"
-      onClick={() => setSelected(key)}
+      onClick={() => {
+        if (key === selected) return
+        listSeq.current += 1
+        setRows([])
+        setHasMore(false)
+        setGeneration('')
+        setLoadingMore(false)
+        setError(null)
+        setNsFilter(NS_ALL)
+        setNameFilter('')
+        setSelected(key)
+      }}
       className={cn(
         'w-full rounded-md px-2 py-1 text-left text-xs transition-colors',
         selected === key ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -328,11 +395,24 @@ export function ResourceBrowser({ clusterId, basicPanel, nodesPanel, syncPanel }
               </Table>
             </div>
           </div>
+          {hasMore && (
+            <div className="flex justify-center">
+              <Button variant="outline" size="sm" onClick={loadMore} disabled={loading || loadingMore}>
+                {loadingMore ? t('resources.loadingMore') : t('resources.loadMore')}
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
       {/* 抽屉:详情 / YAML / 日志 / 终端 */}
-      <Sheet open={detail !== null} onOpenChange={(open) => { if (!open) setDetail(null) }}>
+      <Sheet open={detail !== null} onOpenChange={(open) => {
+        if (!open) {
+          yamlSeq.current += 1
+          setYamlLoading(false)
+          setDetail(null)
+        }
+      }}>
         <SheetContent side="right" className="w-full gap-0 sm:max-w-2xl">
           {detail && (
             <>
@@ -402,13 +482,13 @@ export function ResourceBrowser({ clusterId, basicPanel, nodesPanel, syncPanel }
 
                   {detailIsPod && clusterId && (
                     <TabsContent value="logs" className="mt-3 flex-1 overflow-hidden">
-                      <PodLogs clusterId={clusterId} namespace={detail.namespace} pod={detail.name} />
+                      <PodLogs key={`${clusterId}/${detail.namespace}/${detail.name}`} clusterId={clusterId} namespace={detail.namespace} pod={detail.name} />
                     </TabsContent>
                   )}
 
                   {detailIsPod && canExec && clusterId && (
                     <TabsContent value="terminal" className="mt-3 flex-1 overflow-hidden">
-                      <PodTerminal clusterId={clusterId} namespace={detail.namespace} pod={detail.name} />
+                      <PodTerminal key={`${clusterId}/${detail.namespace}/${detail.name}`} clusterId={clusterId} namespace={detail.namespace} pod={detail.name} />
                     </TabsContent>
                   )}
                 </Tabs>

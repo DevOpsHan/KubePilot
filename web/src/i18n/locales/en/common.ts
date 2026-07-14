@@ -168,6 +168,7 @@ export const enCommon = {
     silenceNotFound: 'The silence rule was not found',
     cannotDeleteCurrentUser: 'The currently signed-in user cannot be deleted',
     cannotDeleteLastGlobalAdmin: 'The last global administrator cannot be deleted',
+    persistentGlobalAdminRequired: 'At least one active, non-expiring global administrator must remain',
     clusterGrantRequired: 'This role must be authorized for at least one cluster',
   },
   nav: {

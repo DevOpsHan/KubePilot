@@ -17,7 +17,7 @@ export default defineConfig({
     // 本地开发时将 API 请求代理到运行中的 Go 后端。
     proxy: {
       // ws: true 让 Pod 终端 / 日志跟随的 WebSocket 也能经 dev 代理转发到后端。
-      '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true, ws: true },
+      '/api': { target: 'http://127.0.0.1:8080', changeOrigin: false, ws: true },
       '/health': { target: 'http://127.0.0.1:8080', changeOrigin: true },
     },
   },

@@ -21,11 +21,13 @@ type createUserRequest struct {
 }
 
 type updateUserRequest struct {
-	DisplayName *string `json:"display_name"`
-	Email       *string `json:"email"`
-	ExpiresAt   *string `json:"expires_at"`
-	Status      *string `json:"status"`
-	ClusterIDs  *[]uint `json:"cluster_ids"`
+	DisplayName  *string `json:"display_name"`
+	Email        *string `json:"email"`
+	Role         *string `json:"role"`
+	ExpiresAt    *string `json:"expires_at"`
+	NeverExpires *bool   `json:"never_expires"`
+	Status       *string `json:"status"`
+	ClusterIDs   *[]uint `json:"cluster_ids"`
 }
 
 func (s *Server) handleListUsers(c echo.Context) error {
@@ -95,25 +97,49 @@ func (s *Server) handleUpdateUser(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 	targetRole := target.Role
+	if req.Role != nil {
+		targetRole = strings.TrimSpace(*req.Role)
+	}
+	assignmentClusterIDs, err := s.store.ListUserClusterIDs(target.ID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
 	if req.ClusterIDs != nil {
-		if err := s.validateUserAssignment(targetRole, *req.ClusterIDs); err != nil {
+		assignmentClusterIDs = *req.ClusterIDs
+	}
+	if req.Role != nil || req.ClusterIDs != nil {
+		if err := s.validateUserAssignment(targetRole, assignmentClusterIDs); err != nil {
 			return err
 		}
 	}
 	var expiresAt *time.Time
+	expiresAtSet := false
+	if req.NeverExpires != nil {
+		if *req.NeverExpires {
+			if req.ExpiresAt != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": "永不过期与失效日期不能同时设置"})
+			}
+			expiresAtSet = true
+		} else if req.ExpiresAt == nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "设置有限有效期时必须提供失效日期"})
+		}
+	}
 	if req.ExpiresAt != nil {
 		parsed, err := parseUserExpiresAt(*req.ExpiresAt)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
 		expiresAt = parsed
+		expiresAtSet = true
 	}
 	user, err := s.store.UpdateUser(uint(id), store.UpdateUserInput{
-		DisplayName: req.DisplayName,
-		Email:       req.Email,
-		ExpiresAt:   expiresAt,
-		Status:      req.Status,
-		ClusterIDs:  req.ClusterIDs,
+		DisplayName:  req.DisplayName,
+		Email:        req.Email,
+		Role:         req.Role,
+		ExpiresAt:    expiresAt,
+		ExpiresAtSet: expiresAtSet,
+		Status:       req.Status,
+		ClusterIDs:   req.ClusterIDs,
 	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -157,19 +183,6 @@ func (s *Server) handleDeleteUser(c echo.Context) error {
 	if current != nil && current.ID == id {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "不能删除当前登录用户"})
 	}
-	target, err := s.store.GetUser(id)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
-	}
-	if target.Role == store.UserRoleGlobalAdmin {
-		count, err := s.store.CountGlobalAdminsExcluding(id)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		if count == 0 {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "不能删除最后一个全局管理员"})
-		}
-	}
 	if err := s.store.SoftDeleteUser(id); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
@@ -183,6 +196,16 @@ func (s *Server) validateUserAssignment(role string, clusterIDs []uint) error {
 	role = strings.TrimSpace(role)
 	if role == "" {
 		role = store.UserRoleClusterAdmin
+	}
+	valid := false
+	for _, item := range store.ValidRoles() {
+		if role == item {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return echo.NewHTTPError(http.StatusBadRequest, store.ErrInvalidRole.Error())
 	}
 	if store.RoleRequiresClusterGrants(role) && len(clusterIDs) == 0 {
 		return echo.NewHTTPError(http.StatusBadRequest, "该角色必须至少授权一个集群")

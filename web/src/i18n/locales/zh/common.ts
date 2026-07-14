@@ -165,6 +165,7 @@ export const zhCommon = {
     silenceNotFound: '静默规则不存在',
     cannotDeleteCurrentUser: '不能删除当前登录用户',
     cannotDeleteLastGlobalAdmin: '不能删除最后一个全局管理员',
+    persistentGlobalAdminRequired: '至少必须保留一个启用且永不过期的全局管理员',
     clusterGrantRequired: '该角色必须至少授权一个集群',
   },
   nav: {

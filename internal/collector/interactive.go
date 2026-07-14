@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/httpstream"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
@@ -36,14 +37,33 @@ func (c *Collector) ListPodContainers(ctx context.Context, namespace, pod string
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(p.Spec.InitContainers)+len(p.Spec.Containers))
-	for i := range p.Spec.InitContainers {
-		names = append(names, p.Spec.InitContainers[i].Name)
-	}
+	names := make([]string, 0, len(p.Spec.InitContainers)+len(p.Spec.Containers)+len(p.Spec.EphemeralContainers))
+	// 终端默认选择第一个容器；普通容器应优先，init 容器仍保留给日志查询。
 	for i := range p.Spec.Containers {
 		names = append(names, p.Spec.Containers[i].Name)
 	}
+	for i := range p.Spec.InitContainers {
+		names = append(names, p.Spec.InitContainers[i].Name)
+	}
+	for i := range p.Spec.EphemeralContainers {
+		names = append(names, p.Spec.EphemeralContainers[i].Name)
+	}
 	return names, nil
+}
+
+func (c *Collector) podLogClient() (kubernetes.Interface, error) {
+	if c.restConfig == nil {
+		return c.clientset, nil
+	}
+	c.logClientOnce.Do(func() {
+		cfg := rest.CopyConfig(c.restConfig)
+		cfg.Timeout = 0
+		c.logClient, c.logClientErr = kubernetes.NewForConfig(cfg)
+	})
+	if c.logClientErr != nil {
+		return nil, fmt.Errorf("创建日志流客户端失败: %w", c.logClientErr)
+	}
+	return c.logClient, nil
 }
 
 // StreamPodLogs 打开 Pod 日志流,调用方负责关闭返回的 ReadCloser。
@@ -52,6 +72,10 @@ func (c *Collector) StreamPodLogs(ctx context.Context, namespace, pod string, op
 	if c == nil || c.clientset == nil {
 		return nil, fmt.Errorf("K8S 客户端未就绪")
 	}
+	clientset, err := c.podLogClient()
+	if err != nil {
+		return nil, err
+	}
 	logOpts := &corev1.PodLogOptions{
 		Container:  opts.Container,
 		Follow:     opts.Follow,
@@ -59,7 +83,7 @@ func (c *Collector) StreamPodLogs(ctx context.Context, namespace, pod string, op
 		Previous:   opts.Previous,
 		TailLines:  opts.TailLines,
 	}
-	req := c.clientset.CoreV1().Pods(namespace).GetLogs(pod, logOpts)
+	req := clientset.CoreV1().Pods(namespace).GetLogs(pod, logOpts)
 	return req.Stream(ctx)
 }
 

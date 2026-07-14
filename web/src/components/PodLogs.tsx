@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { appendBoundedText, decodeUtf8Chunk, flushUtf8Decoder } from '@/lib/stream-text'
 
 // PodLogs 查看 Pod 日志:容器选择 + 尾部行数 + 跟随开关。
 // - 非跟随:一次性 fetchPodLogs 拉取文本。
@@ -21,8 +22,10 @@ const TAIL_OPTIONS = [100, 500, 1000, 5000]
 
 export function PodLogs({ clusterId, namespace, pod }: PodLogsProps) {
   const { t } = useTranslation('clusters')
+  const podKey = `${clusterId}\u0000${namespace}\u0000${pod}`
   const [containers, setContainers] = useState<string[]>([])
   const [container, setContainer] = useState('')
+  const [containersReadyFor, setContainersReadyFor] = useState('')
   const [tail, setTail] = useState(500)
   const [follow, setFollow] = useState(false)
   const [content, setContent] = useState('')
@@ -30,7 +33,10 @@ export function PodLogs({ clusterId, namespace, pod }: PodLogsProps) {
   const [error, setError] = useState('')
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
-  const decoderRef = useRef(new TextDecoder())
+  const loadSeq = useRef(0)
+  const textRef = useRef({ empty: '', streamError: '' })
+  textRef.current = { empty: t('logs.empty'), streamError: t('logs.streamError') }
+  const containersReady = containersReadyFor === podKey
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current
@@ -48,53 +54,84 @@ export function PodLogs({ clusterId, namespace, pod }: PodLogsProps) {
   // 拉取容器列表:多容器 Pod 时显示选择器,默认选第一个
   useEffect(() => {
     let cancelled = false
+    loadSeq.current += 1
+    setContainers([])
+    setContainer('')
+    setContainersReadyFor('')
     listPodContainers(clusterId, namespace, pod)
       .then((res) => {
         if (cancelled) return
         const names: string[] = res.containers || []
         setContainers(names)
-        setContainer((prev) => prev || names[0] || '')
+        setContainer(names[0] || '')
       })
       .catch(() => { /* 容器列表拉取失败不阻断日志:留空走默认容器 */ })
+      .finally(() => {
+        if (!cancelled) setContainersReadyFor(podKey)
+      })
     return () => { cancelled = true }
-  }, [clusterId, namespace, pod])
+  }, [clusterId, namespace, pod, podKey])
 
   // 一次性加载
   const loadOnce = useCallback(async () => {
+    if (!containersReady) return
+    const seq = ++loadSeq.current
     setLoading(true); setError('')
     try {
       const text = await fetchPodLogs(clusterId, namespace, pod, { container, tail })
-      setContent(text || t('logs.empty'))
+      if (seq !== loadSeq.current) return
+      setContent(appendBoundedText('', text || textRef.current.empty))
       requestAnimationFrame(scrollToBottom)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      if (seq === loadSeq.current) setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
-  }, [clusterId, namespace, pod, container, tail, t, scrollToBottom])
+  }, [clusterId, namespace, pod, container, tail, containersReady, scrollToBottom])
 
-  // 跟随模式:先拉一段历史尾部,再打开 WS 追加
+  // 跟随流首批包含指定历史尾部，因此先清空一次性快照再持续追加。
   useEffect(() => {
-    if (!follow) { closeStream(); return }
+    if (!follow || !containersReady) { closeStream(); return }
     setError('')
+    setContent('')
+    const decoder = new TextDecoder()
     const ws = openPodLogStream(clusterId, namespace, pod, { container, tail })
+    let active = true
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
     ws.onmessage = (ev) => {
-      const chunk = typeof ev.data === 'string' ? ev.data : decoderRef.current.decode(ev.data as ArrayBuffer)
-      setContent((prev) => prev + chunk)
+      if (!active) return
+      const chunk = typeof ev.data === 'string' ? ev.data : decodeUtf8Chunk(decoder, ev.data as ArrayBuffer)
+      setContent((prev) => appendBoundedText(prev, chunk))
       requestAnimationFrame(scrollToBottom)
     }
-    ws.onerror = () => setError(t('logs.streamError'))
-    return () => { closeStream() }
-  }, [follow, clusterId, namespace, pod, container, tail, closeStream, scrollToBottom, t])
+    ws.onclose = () => {
+      if (!active) return
+      active = false
+      const tailChunk = flushUtf8Decoder(decoder)
+      if (tailChunk) setContent((prev) => appendBoundedText(prev, tailChunk))
+      if (wsRef.current === ws) wsRef.current = null
+      setFollow(false)
+    }
+    ws.onerror = () => {
+      if (active) setError(textRef.current.streamError)
+    }
+    return () => {
+      active = false
+      ws.onclose = null
+      ws.onmessage = null
+      ws.onerror = null
+      closeStream()
+    }
+  }, [follow, clusterId, namespace, pod, container, tail, containersReady, closeStream, scrollToBottom])
 
   // 非跟随时,首次与参数变化即加载
   useEffect(() => {
-    if (follow) return
+    if (follow || !containersReady) return
     setContent('')
-    loadOnce()
-  }, [follow, loadOnce])
+    void loadOnce()
+    return () => { loadSeq.current += 1 }
+  }, [follow, containersReady, loadOnce])
 
   useEffect(() => () => closeStream(), [closeStream])
 

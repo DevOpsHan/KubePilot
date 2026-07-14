@@ -196,6 +196,7 @@ export const zhSettings = {
     expired: '已过期',
     allClusters: '全部集群',
     clusterFallback: '集群 {{id}}',
+    legacyRole: '{{role}}（已移除，请重新分配角色）',
     expiry: {
       threeMonths: '3 个月',
       sixMonths: '6 个月',
@@ -239,6 +240,7 @@ export const zhSettings = {
       expiry: '有效期',
       clusters: '授权集群',
       expiresAt: '失效日期',
+      neverExpires: '永不过期',
       status: '用户状态',
       lastLogin: '最近登录',
       passwordAttemptedAt: '密码尝试时间',
@@ -256,6 +258,7 @@ export const zhSettings = {
     validation: {
       username: '用户名不能为空',
       clusters: '请选择至少一个授权集群',
+      role: '请选择一个当前支持的角色',
       editRequired: '姓名和用户失效日期不能为空',
     },
     confirmations: {

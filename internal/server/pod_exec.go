@@ -3,12 +3,16 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
@@ -18,52 +22,91 @@ import (
 	"aiops/internal/store"
 )
 
+const (
+	webSocketSessionMaxDuration = 30 * time.Minute
+	webSocketSessionCheckPeriod = 15 * time.Second
+	webSocketWriteTimeout       = 10 * time.Second
+	webSocketMaxClientFrameSize = 1 << 20
+	podLogDefaultTailLines      = int64(500)
+	podLogMaxTailLines          = int64(5000)
+	podLogOnceTimeout           = 30 * time.Second
+	podLogOnceMaxBytes          = int64(4 << 20)
+	podLogTruncatedHeader       = "X-KubePilot-Log-Truncated"
+	podLogTruncatedMarker       = "\n…(日志过长，已截断 / log output truncated)…\n"
+)
+
+var defaultWebSocketSessionLimits = webSocketSessionLimits{
+	MaxDuration:   webSocketSessionMaxDuration,
+	CheckInterval: webSocketSessionCheckPeriod,
+}
+
 // podExecUpgrader 负责把 Pod 终端 / 日志跟随请求从 HTTP 升级为 WebSocket。
-// CheckOrigin 仅放行同源与本地开发来源,避免跨站脚本借用浏览器 cookie 发起 exec。
+// CheckOrigin 仅放行严格同源请求,避免跨站脚本借用浏览器 cookie 发起 exec。
 var podExecUpgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
 	CheckOrigin:     checkWebSocketOrigin,
 }
 
-// checkWebSocketOrigin 校验 WebSocket 握手来源:无 Origin(非浏览器)放行;
-// 否则要求 Origin 主机与请求 Host 相同,或为本地开发地址(vite 代理场景)。
+type webSocketSessionLimits struct {
+	MaxDuration   time.Duration
+	CheckInterval time.Duration
+}
+
+// checkWebSocketOrigin 校验 WebSocket 握手来源:无 Origin 的非浏览器客户端放行;
+// 浏览器请求必须与代理保留的请求协议、主机和有效端口完全一致。
 func checkWebSocketOrigin(r *http.Request) bool {
-	origin := r.Header.Get("Origin")
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin == "" {
 		return true
 	}
-	host := originHost(origin)
-	if host == "" {
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil ||
+		parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return false
 	}
-	if strings.EqualFold(host, r.Host) {
-		return true
+	originKey, err := canonicalOrigin(parsed.Scheme, parsed.Host)
+	if err != nil {
+		return false
 	}
-	// 剥离端口后再比对主机名,兼容反向代理改写端口的场景。
-	if strings.EqualFold(hostname(host), hostname(r.Host)) {
-		return true
+	requestKey, err := canonicalOrigin(requestScheme(r), r.Host)
+	if err != nil {
+		return false
 	}
-	// 本地开发:vite dev server 代理 WebSocket 时 Origin 为 localhost:5174。
-	switch hostname(host) {
-	case "localhost", "127.0.0.1":
-		return true
-	}
-	return false
+	return originKey == requestKey
 }
 
-func originHost(origin string) string {
-	if i := strings.Index(origin, "://"); i >= 0 {
-		return origin[i+3:]
+func requestScheme(r *http.Request) string {
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwarded != "" {
+		if comma := strings.IndexByte(forwarded, ','); comma >= 0 {
+			forwarded = forwarded[:comma]
+		}
+		return strings.ToLower(strings.TrimSpace(forwarded))
 	}
-	return origin
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
 }
 
-func hostname(hostPort string) string {
-	if i := strings.IndexByte(hostPort, ':'); i >= 0 {
-		return hostPort[:i]
+func canonicalOrigin(scheme, hostPort string) (string, error) {
+	scheme = strings.ToLower(strings.TrimSpace(scheme))
+	if scheme != "http" && scheme != "https" {
+		return "", fmt.Errorf("不支持的 Origin 协议: %s", scheme)
 	}
-	return hostPort
+	parsed, err := url.Parse(scheme + "://" + strings.TrimSpace(hostPort))
+	if err != nil || parsed.Hostname() == "" || parsed.Path != "" || parsed.User != nil {
+		return "", fmt.Errorf("无效的 Origin 主机: %s", hostPort)
+	}
+	port := parsed.Port()
+	if port == "" {
+		if scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	return scheme + "://" + net.JoinHostPort(strings.ToLower(parsed.Hostname()), port), nil
 }
 
 // execClientMessage 是前端通过 WebSocket 发给服务端的控制帧(文本 JSON)。
@@ -82,12 +125,19 @@ type wsBinaryWriter struct {
 }
 
 func (w *wsBinaryWriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if err := w.conn.WriteMessage(websocket.BinaryMessage, p); err != nil {
+	if err := writeWebSocketMessage(w.conn, w.mu, websocket.BinaryMessage, p); err != nil {
 		return 0, err
 	}
 	return len(p), nil
+}
+
+func writeWebSocketMessage(conn *websocket.Conn, mu *sync.Mutex, messageType int, data []byte) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if err := conn.SetWriteDeadline(time.Now().Add(webSocketWriteTimeout)); err != nil {
+		return err
+	}
+	return conn.WriteMessage(messageType, data)
 }
 
 // terminalSizeQueue 实现 remotecommand.TerminalSizeQueue,把前端 resize 帧转成尺寸事件。
@@ -101,6 +151,80 @@ func (q *terminalSizeQueue) Next() *remotecommand.TerminalSize {
 		return nil
 	}
 	return &size
+}
+
+// podExecutor 抽象 Pod exec 能力,让 WebSocket 生命周期可以脱离真实集群做回归测试。
+type podExecutor interface {
+	ExecInPod(context.Context, string, string, collector.ExecOptions) error
+}
+
+// newWebSocketSessionContext 为长连接设置最大时长,并周期复查登录会话与授权。
+func (s *Server) newWebSocketSessionContext(parent context.Context, token string, clusterID uint, permission string, limits webSocketSessionLimits) (context.Context, context.CancelCauseFunc) {
+	ctx, cancel := context.WithCancelCause(parent)
+	if limits.MaxDuration <= 0 {
+		limits.MaxDuration = webSocketSessionMaxDuration
+	}
+	if limits.CheckInterval <= 0 {
+		limits.CheckInterval = webSocketSessionCheckPeriod
+	}
+	go func() {
+		timer := time.NewTimer(limits.MaxDuration)
+		defer timer.Stop()
+		ticker := time.NewTicker(limits.CheckInterval)
+		defer ticker.Stop()
+
+		if err := s.validateWebSocketSession(token, clusterID, permission); err != nil {
+			cancel(err)
+			return
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+				cancel(fmt.Errorf("WebSocket 会话已达到最大时长"))
+				return
+			case <-ticker.C:
+				if err := s.validateWebSocketSession(token, clusterID, permission); err != nil {
+					cancel(err)
+					return
+				}
+			}
+		}
+	}()
+	return ctx, cancel
+}
+
+func (s *Server) validateWebSocketSession(token string, clusterID uint, permission string) error {
+	if s.store == nil {
+		return fmt.Errorf("登录会话校验失败:数据库未就绪")
+	}
+	user, err := s.store.GetUserBySessionToken(token)
+	if err != nil {
+		return fmt.Errorf("登录会话已失效: %w", err)
+	}
+	if !store.RoleHasPermission(user.Role, permission) {
+		return fmt.Errorf("登录用户已失去当前操作权限")
+	}
+	if user.Role == store.UserRoleGlobalAdmin {
+		return nil
+	}
+	allowed, err := s.store.UserHasClusterAccess(user.ID, clusterID)
+	if err != nil {
+		return fmt.Errorf("复查集群授权失败: %w", err)
+	}
+	if !allowed {
+		return fmt.Errorf("登录用户已失去目标集群授权")
+	}
+	return nil
+}
+
+func webSocketSessionResult(ctx context.Context, fallback string) string {
+	cause := context.Cause(ctx)
+	if cause == nil || errors.Is(cause, context.Canceled) {
+		return fallback
+	}
+	return "会话终止: " + cause.Error()
 }
 
 // handleListPodContainers 返回指定 Pod 的容器名列表,供前端选择目标容器。
@@ -146,11 +270,17 @@ func (s *Server) handlePodLogs(c echo.Context) error {
 		Timestamps: c.QueryParam("timestamps") == "true",
 		Previous:   c.QueryParam("previous") == "true",
 	}
-	if tail := c.QueryParam("tail"); tail != "" {
-		if n, convErr := strconv.ParseInt(tail, 10, 64); convErr == nil && n >= 0 {
-			opts.TailLines = &n
+	tailLines := podLogDefaultTailLines
+	if tail := strings.TrimSpace(c.QueryParam("tail")); tail != "" {
+		n, convErr := strconv.ParseInt(tail, 10, 64)
+		if convErr != nil || n < 0 || n > podLogMaxTailLines {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": fmt.Sprintf("tail 必须是 0 到 %d 之间的整数", podLogMaxTailLines),
+			})
 		}
+		tailLines = n
 	}
+	opts.TailLines = &tailLines
 	operator := currentUsername(c)
 	target := namespace + "/" + pod
 	if opts.Container != "" {
@@ -165,22 +295,77 @@ func (s *Server) handlePodLogs(c echo.Context) error {
 
 // servePodLogsOnce 一次性读取日志并以纯文本返回。
 func (s *Server) servePodLogsOnce(c echo.Context, col *collector.Collector, clusterID uint, namespace, pod string, opts collector.LogStreamOptions, operator, target string) error {
-	stream, err := col.StreamPodLogs(c.Request().Context(), namespace, pod, opts)
+	return s.servePodLogsOnceWithLimits(
+		c, col, clusterID, namespace, pod, opts, operator, target,
+		podLogOnceTimeout, podLogOnceMaxBytes,
+	)
+}
+
+func (s *Server) servePodLogsOnceWithLimits(c echo.Context, col *collector.Collector, clusterID uint, namespace, pod string, opts collector.LogStreamOptions, operator, target string, timeout time.Duration, maxBytes int64) error {
+	if timeout <= 0 {
+		timeout = podLogOnceTimeout
+	}
+	if maxBytes <= 0 {
+		maxBytes = podLogOnceMaxBytes
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), timeout)
+	defer cancel()
+	opts.Follow = false
+	s.auditPodAccess(clusterID, "pod:logs", operator, target, "查看日志", "开始")
+	stream, err := col.StreamPodLogs(ctx, namespace, pod, opts)
 	if err != nil {
-		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+		result := "建立日志流失败: " + err.Error()
+		status := http.StatusServiceUnavailable
+		message := err.Error()
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			result = fmt.Sprintf("建立日志流超时:超过 %s", timeout)
+			status = http.StatusGatewayTimeout
+			message = fmt.Sprintf("建立 Pod 日志流超过 %s 的安全上限", timeout)
+		}
+		s.auditPodAccess(clusterID, "pod:logs", operator, target, "查看日志", result)
+		return c.JSON(status, map[string]string{"error": message})
 	}
 	defer stream.Close()
-	c.Response().Header().Set(echo.HeaderContentType, "text/plain; charset=utf-8")
-	c.Response().WriteHeader(http.StatusOK)
-	_, copyErr := io.Copy(c.Response(), stream)
-	s.auditPodAccess(clusterID, "pod:logs", operator, target, "查看日志", copyResult(copyErr))
-	return nil
+	data, readErr := io.ReadAll(io.LimitReader(stream, maxBytes+1))
+	if readErr != nil {
+		result := "读取中断: " + readErr.Error()
+		status := http.StatusServiceUnavailable
+		message := readErr.Error()
+		if errors.Is(readErr, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			result = fmt.Sprintf("读取超时:超过 %s", timeout)
+			status = http.StatusGatewayTimeout
+			message = fmt.Sprintf("读取 Pod 日志超过 %s 的安全上限", timeout)
+		}
+		s.auditPodAccess(clusterID, "pod:logs", operator, target, "查看日志", result)
+		return c.JSON(status, map[string]string{"error": message})
+	}
+
+	result := "完成"
+	if int64(len(data)) > maxBytes {
+		data = append(data[:maxBytes], []byte(podLogTruncatedMarker)...)
+		c.Response().Header().Set(podLogTruncatedHeader, "true")
+		result = fmt.Sprintf("完成:输出超过 %d 字节已截断", maxBytes)
+	}
+	writeErr := c.Blob(http.StatusOK, "text/plain; charset=utf-8", data)
+	if writeErr != nil {
+		result = "响应写入失败: " + writeErr.Error()
+	}
+	s.auditPodAccess(clusterID, "pod:logs", operator, target, "查看日志", result)
+	return writeErr
 }
 
 // servePodLogsFollow 升级 WebSocket,持续把日志推送给前端,直到日志结束或客户端断开。
 func (s *Server) servePodLogsFollow(c echo.Context, col *collector.Collector, clusterID uint, namespace, pod string, opts collector.LogStreamOptions, operator, target string) error {
-	ctx, cancel := context.WithCancel(c.Request().Context())
-	defer cancel()
+	// 在访问 Kubernetes API 前先拒绝跨站握手，避免攻击者借浏览器 Cookie
+	// 触发后端创建无用的日志流连接。
+	if !checkWebSocketOrigin(c.Request()) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "WebSocket Origin 与请求来源不一致"})
+	}
+	ctx, cancel := s.newWebSocketSessionContext(
+		c.Request().Context(), currentSessionToken(c), clusterID, store.PermissionViewClusters,
+		defaultWebSocketSessionLimits,
+	)
+	defer cancel(nil)
 
 	stream, err := col.StreamPodLogs(ctx, namespace, pod, opts)
 	if err != nil {
@@ -193,13 +378,17 @@ func (s *Server) servePodLogsFollow(c echo.Context, col *collector.Collector, cl
 		return nil // 升级失败时 upgrader 已写响应
 	}
 	defer ws.Close()
+	ws.SetReadLimit(webSocketMaxClientFrameSize)
+	s.auditPodAccess(clusterID, "pod:logs", operator, target, "查看日志(跟随)", "会话开始")
 
 	var writeMu sync.Mutex
+	readDone := make(chan struct{})
 	// 读协程:感知客户端关闭,触发 cancel 停止日志流。
 	go func() {
+		defer close(readDone)
 		for {
 			if _, _, readErr := ws.ReadMessage(); readErr != nil {
-				cancel()
+				cancel(nil)
 				return
 			}
 		}
@@ -209,9 +398,7 @@ func (s *Server) servePodLogsFollow(c echo.Context, col *collector.Collector, cl
 	for {
 		n, readErr := stream.Read(buf)
 		if n > 0 {
-			writeMu.Lock()
-			writeErr := ws.WriteMessage(websocket.BinaryMessage, buf[:n])
-			writeMu.Unlock()
+			writeErr := writeWebSocketMessage(ws, &writeMu, websocket.BinaryMessage, buf[:n])
 			if writeErr != nil {
 				break
 			}
@@ -220,7 +407,12 @@ func (s *Server) servePodLogsFollow(c echo.Context, col *collector.Collector, cl
 			break
 		}
 	}
-	s.auditPodAccess(clusterID, "pod:logs", operator, target, "查看日志(跟随)", "会话结束")
+	result := webSocketSessionResult(ctx, "会话结束")
+	cancel(nil)
+	_ = stream.Close()
+	_ = ws.Close()
+	<-readDone
+	s.auditPodAccess(clusterID, "pod:logs", operator, target, "查看日志(跟随)", result)
 	return nil
 }
 
@@ -252,28 +444,40 @@ func (s *Server) handlePodExec(c echo.Context) error {
 		target += ":" + container
 	}
 	detail := "命令: " + strings.Join(command, " ")
+	return s.servePodExec(c, runtime.Collector, clusterID, namespace, pod, container, command, operator, target, detail)
+}
 
+// servePodExec 管理一次已授权终端的 WebSocket、会话复查、输入输出与审计生命周期。
+func (s *Server) servePodExec(c echo.Context, executor podExecutor, clusterID uint, namespace, pod, container string, command []string, operator, target, detail string) error {
 	ws, err := podExecUpgrader.Upgrade(c.Response(), c.Request(), nil)
 	if err != nil {
 		return nil
 	}
 	defer ws.Close()
+	ws.SetReadLimit(webSocketMaxClientFrameSize)
 
-	ctx, cancel := context.WithCancel(c.Request().Context())
-	defer cancel()
+	ctx, cancel := s.newWebSocketSessionContext(
+		c.Request().Context(), currentSessionToken(c), clusterID, store.PermissionClusterExec,
+		defaultWebSocketSessionLimits,
+	)
+	defer cancel(nil)
 
 	stdinR, stdinW := io.Pipe()
+	defer stdinR.Close()
+	defer stdinW.Close()
 	resizeQueue := &terminalSizeQueue{ch: make(chan remotecommand.TerminalSize, 4)}
 	var writeMu sync.Mutex
 	var closeResizeOnce sync.Once
 	closeResize := func() { closeResizeOnce.Do(func() { close(resizeQueue.ch) }) }
+	readDone := make(chan struct{})
 
 	// 读协程:解析前端控制帧(stdin / resize),客户端断开时收尾。
 	go func() {
 		defer func() {
 			_ = stdinW.Close()
 			closeResize()
-			cancel()
+			cancel(nil)
+			close(readDone)
 		}()
 		for {
 			_, data, readErr := ws.ReadMessage()
@@ -298,8 +502,9 @@ func (s *Server) handlePodExec(c echo.Context) error {
 		}
 	}()
 
+	s.auditPodAccess(clusterID, "pod:exec", operator, target, detail, "会话开始")
 	stdout := &wsBinaryWriter{conn: ws, mu: &writeMu}
-	execErr := runtime.Collector.ExecInPod(ctx, namespace, pod, collector.ExecOptions{
+	execErr := executor.ExecInPod(ctx, namespace, pod, collector.ExecOptions{
 		Container: container,
 		Command:   command,
 		TTY:       true,
@@ -308,18 +513,33 @@ func (s *Server) handlePodExec(c echo.Context) error {
 		Resize:    resizeQueue,
 	})
 
-	result := "会话正常结束"
-	if execErr != nil {
+	result := webSocketSessionResult(ctx, "会话正常结束")
+	if execErr != nil && result == "会话正常结束" && !errors.Is(execErr, context.Canceled) {
 		result = "会话异常结束: " + execErr.Error()
-		writeMu.Lock()
-		_ = ws.WriteMessage(websocket.TextMessage, mustJSON(map[string]string{"type": "error", "message": execErr.Error()}))
-		writeMu.Unlock()
+	}
+	connectionWritable := true
+	if execErr != nil {
+		message := execErr.Error()
+		if sessionResult := webSocketSessionResult(ctx, ""); sessionResult != "" {
+			message = sessionResult
+		}
+		if writeErr := writeWebSocketMessage(ws, &writeMu, websocket.TextMessage, mustJSON(map[string]string{"type": "error", "message": message})); writeErr != nil {
+			connectionWritable = false
+		}
 	}
 	// 通知前端会话结束,便于终端提示。
-	writeMu.Lock()
-	_ = ws.WriteMessage(websocket.TextMessage, mustJSON(map[string]string{"type": "exit"}))
-	writeMu.Unlock()
+	if connectionWritable {
+		_ = writeWebSocketMessage(ws, &writeMu, websocket.TextMessage, mustJSON(map[string]string{"type": "exit"}))
+	}
 
+	pipeErr := execErr
+	if pipeErr == nil {
+		pipeErr = io.EOF
+	}
+	_ = stdinR.CloseWithError(pipeErr)
+	cancel(nil)
+	_ = ws.Close()
+	<-readDone
 	s.auditPodAccess(clusterID, "pod:exec", operator, target, detail, result)
 	return nil
 }
@@ -336,13 +556,6 @@ func (s *Server) auditPodAccess(clusterID uint, action, operator, target, detail
 		Detail:   detail,
 		Result:   result,
 	})
-}
-
-func copyResult(err error) string {
-	if err != nil {
-		return "读取中断: " + err.Error()
-	}
-	return "完成"
 }
 
 func mustJSON(v any) []byte {

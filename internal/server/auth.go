@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	authCookieName = "aiops_auth"
-	currentUserKey = "current_user"
-	authSessionTTL = 30 * time.Minute
+	authCookieName         = "aiops_auth"
+	currentUserKey         = "current_user"
+	currentSessionTokenKey = "current_session_token"
+	authSessionTTL         = 30 * time.Minute
 )
 
 type loginRequest struct {
@@ -51,6 +52,7 @@ func (s *Server) authMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 		setAuthCookie(c, token, session.ExpiresAt)
 		c.Set(currentUserKey, user)
+		c.Set(currentSessionTokenKey, token)
 		return next(c)
 	}
 }
@@ -66,7 +68,8 @@ func (s *Server) handleAuthLogin(c echo.Context) error {
 	user, err := s.store.AuthenticateUser(req.Username, req.Password)
 	if err != nil {
 		status := http.StatusUnauthorized
-		if errors.Is(err, store.ErrUserDisabled) || errors.Is(err, store.ErrUserExpired) || errors.Is(err, store.ErrUserDeleted) {
+		if errors.Is(err, store.ErrUserDisabled) || errors.Is(err, store.ErrUserExpired) ||
+			errors.Is(err, store.ErrUserDeleted) || errors.Is(err, store.ErrUserRoleRequiresMigration) {
 			status = http.StatusForbidden
 		}
 		return c.JSON(status, map[string]string{"error": err.Error()})
@@ -74,9 +77,9 @@ func (s *Server) handleAuthLogin(c echo.Context) error {
 	if user.PasswordChangeRequired {
 		return c.JSON(http.StatusOK, loginResponse{User: user, PasswordChangeRequired: true})
 	}
-	token, session, err := s.store.CreateAuthSession(user.ID, authSessionTTL)
+	token, session, err := s.store.CreateAuthSession(user, authSessionTTL)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(authSessionFailureStatus(err, false), map[string]string{"error": err.Error()})
 	}
 	setAuthCookie(c, token, session.ExpiresAt)
 	return c.JSON(http.StatusOK, loginResponse{User: user, Token: token})
@@ -93,7 +96,8 @@ func (s *Server) handleAuthChangePassword(c echo.Context) error {
 	user, err := s.store.AuthenticateUser(req.Username, req.CurrentPassword)
 	if err != nil {
 		status := http.StatusUnauthorized
-		if errors.Is(err, store.ErrUserDisabled) || errors.Is(err, store.ErrUserExpired) || errors.Is(err, store.ErrUserDeleted) {
+		if errors.Is(err, store.ErrUserDisabled) || errors.Is(err, store.ErrUserExpired) ||
+			errors.Is(err, store.ErrUserDeleted) || errors.Is(err, store.ErrUserRoleRequiresMigration) {
 			status = http.StatusForbidden
 		}
 		return c.JSON(status, map[string]string{"error": err.Error()})
@@ -105,12 +109,26 @@ func (s *Server) handleAuthChangePassword(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
-	token, session, err := s.store.CreateAuthSession(updated.ID, authSessionTTL)
+	token, session, err := s.store.CreateAuthSession(updated, authSessionTTL)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(authSessionFailureStatus(err, true), map[string]string{"error": err.Error()})
 	}
 	setAuthCookie(c, token, session.ExpiresAt)
 	return c.JSON(http.StatusOK, loginResponse{User: updated, Token: token})
+}
+
+func authSessionFailureStatus(err error, afterPasswordChange bool) int {
+	if errors.Is(err, store.ErrInvalidCredentials) {
+		if afterPasswordChange {
+			return http.StatusConflict
+		}
+		return http.StatusUnauthorized
+	}
+	if errors.Is(err, store.ErrUserDisabled) || errors.Is(err, store.ErrUserExpired) ||
+		errors.Is(err, store.ErrUserDeleted) || errors.Is(err, store.ErrUserRoleRequiresMigration) {
+		return http.StatusForbidden
+	}
+	return http.StatusInternalServerError
 }
 
 func (s *Server) handleAuthMe(c echo.Context) error {
@@ -230,6 +248,11 @@ func currentUsername(c echo.Context) string {
 		return user.DisplayName
 	}
 	return user.Username
+}
+
+func currentSessionToken(c echo.Context) string {
+	token, _ := c.Get(currentSessionTokenKey).(string)
+	return strings.TrimSpace(token)
 }
 
 func bearerToken(header string) string {

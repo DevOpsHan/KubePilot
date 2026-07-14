@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -53,13 +54,15 @@ const (
 )
 
 var (
-	ErrInvalidCredentials = errors.New("用户名或密码不正确")
-	ErrUserDisabled       = errors.New("用户已停用")
-	ErrUserExpired        = errors.New("用户已过期")
-	ErrUserDeleted        = errors.New("用户已删除")
-	ErrInvalidRole        = errors.New("无效的用户角色")
-	ErrInvalidUserStatus  = errors.New("无效的用户状态")
-	ErrInvalidSession     = errors.New("登录会话无效或已过期")
+	ErrInvalidCredentials        = errors.New("用户名或密码不正确")
+	ErrUserDisabled              = errors.New("用户已停用")
+	ErrUserExpired               = errors.New("用户已过期")
+	ErrUserDeleted               = errors.New("用户已删除")
+	ErrInvalidRole               = errors.New("无效的用户角色")
+	ErrUserRoleRequiresMigration = errors.New("用户角色已失效，请联系全局管理员重新分配角色")
+	ErrInvalidUserStatus         = errors.New("无效的用户状态")
+	ErrInvalidSession            = errors.New("登录会话无效或已过期")
+	ErrLastUsableGlobalAdmin     = errors.New("至少必须保留一个启用且永不过期的全局管理员")
 )
 
 type CreateUserInput struct {
@@ -81,6 +84,7 @@ type UpdateUserInput struct {
 	Role                   *string
 	Status                 *string
 	ExpiresAt              *time.Time
+	ExpiresAtSet           bool
 	PasswordChangeRequired *bool
 	ClusterIDs             *[]uint
 }
@@ -125,6 +129,16 @@ func normalizeRole(role string) (string, error) {
 		}
 	}
 	return "", ErrInvalidRole
+}
+
+func validatePersistedUserRole(role string) error {
+	role = strings.TrimSpace(role)
+	for _, item := range ValidRoles() {
+		if role == item {
+			return nil
+		}
+	}
+	return ErrUserRoleRequiresMigration
 }
 
 func normalizeUserStatus(status string) (string, error) {
@@ -197,47 +211,83 @@ func (s *Store) CreateUser(input CreateUserInput) (*User, error) {
 }
 
 func (s *Store) UpdateUser(id uint, input UpdateUserInput) (*User, error) {
-	var user User
-	if err := s.db.Where("id = ? AND deleted_at IS NULL", id).First(&user).Error; err != nil {
-		return nil, err
-	}
-	if input.DisplayName != nil {
-		user.DisplayName = strings.TrimSpace(*input.DisplayName)
-		if user.DisplayName == "" {
-			user.DisplayName = user.Username
-		}
-	}
+	var normalizedRole *string
 	if input.Role != nil {
 		role, err := normalizeRole(*input.Role)
 		if err != nil {
 			return nil, err
 		}
-		user.Role = role
+		normalizedRole = &role
 	}
-	if input.Email != nil {
-		user.Email = strings.TrimSpace(*input.Email)
-	}
-	if input.ExpiresAt != nil {
-		user.ExpiresAt = input.ExpiresAt
-	}
+	var normalizedStatus *string
 	if input.Status != nil {
 		status, err := normalizeUserStatus(*input.Status)
 		if err != nil {
 			return nil, err
 		}
-		user.Status = status
+		normalizedStatus = &status
 	}
+	var passwordHash *string
 	if input.Password != nil && strings.TrimSpace(*input.Password) != "" {
 		hash, err := HashPassword(*input.Password)
 		if err != nil {
 			return nil, err
 		}
-		user.PasswordHash = hash
+		passwordHash = &hash
 	}
-	if input.PasswordChangeRequired != nil {
-		user.PasswordChangeRequired = *input.PasswordChangeRequired
-	}
+
+	var user User
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockGlobalAdminAnchor(tx); err != nil {
+			return err
+		}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND deleted_at IS NULL", id).First(&user).Error; err != nil {
+			return err
+		}
+		now := time.Now()
+		originalRole := user.Role
+		wasPersistentGlobalAdmin := isPersistentGlobalAdmin(&user)
+		wasUsableGlobalAdmin := isUsableGlobalAdmin(&user, now)
+		if input.DisplayName != nil {
+			user.DisplayName = strings.TrimSpace(*input.DisplayName)
+			if user.DisplayName == "" {
+				user.DisplayName = user.Username
+			}
+		}
+		if normalizedRole != nil {
+			user.Role = *normalizedRole
+		}
+		if input.Email != nil {
+			user.Email = strings.TrimSpace(*input.Email)
+		}
+		expiresAtSet := input.ExpiresAtSet || input.ExpiresAt != nil
+		expiresAtChanged := expiresAtSet && !optionalTimesEqual(user.ExpiresAt, input.ExpiresAt)
+		if expiresAtSet {
+			user.ExpiresAt = input.ExpiresAt
+		}
+		if normalizedStatus != nil {
+			user.Status = *normalizedStatus
+		}
+		if passwordHash != nil {
+			user.PasswordHash = *passwordHash
+		}
+		passwordChangeRequiredChanged := input.PasswordChangeRequired != nil &&
+			user.PasswordChangeRequired != *input.PasswordChangeRequired
+		if input.PasswordChangeRequired != nil {
+			user.PasswordChangeRequired = *input.PasswordChangeRequired
+		}
+		persistentAdminReduced := wasPersistentGlobalAdmin && !isPersistentGlobalAdmin(&user)
+		usableAdminReduced := wasUsableGlobalAdmin && !isUsableGlobalAdmin(&user, now)
+		if persistentAdminReduced || usableAdminReduced {
+			count, err := countPersistentGlobalAdminsExcluding(tx, user.ID)
+			if err != nil {
+				return err
+			}
+			if count == 0 {
+				return ErrLastUsableGlobalAdmin
+			}
+		}
 		if err := tx.Save(&user).Error; err != nil {
 			return err
 		}
@@ -258,14 +308,26 @@ func (s *Store) UpdateUser(id uint, input UpdateUserInput) (*User, error) {
 				return err
 			}
 		}
+		revokeSessions := originalRole != user.Role ||
+			normalizedStatus != nil && user.Status == UserStatusDisabled ||
+			expiresAtChanged || passwordHash != nil || passwordChangeRequiredChanged
+		if revokeSessions {
+			if err := revokeAuthSessionsForUser(tx, user.ID); err != nil {
+				return err
+			}
+		}
 		return nil
 	}); err != nil {
 		return nil, err
 	}
-	if input.Status != nil && user.Status == UserStatusDisabled {
-		_ = s.RevokeAuthSessionsForUser(user.ID)
-	}
 	return s.GetUser(user.ID)
+}
+
+func optionalTimesEqual(left, right *time.Time) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Equal(*right)
 }
 
 func (s *Store) ListUsers() ([]User, error) {
@@ -323,6 +385,9 @@ func (s *Store) replaceUserClusterGrants(tx *gorm.DB, userID uint, role string, 
 	ids, err := s.normalizeClusterGrantIDs(tx, clusterIDs)
 	if err != nil {
 		return err
+	}
+	if roleRequiresClusterGrants(role) && len(ids) == 0 {
+		return fmt.Errorf("该角色必须至少授权一个有效集群")
 	}
 	grants := make([]UserClusterGrant, 0, len(ids))
 	for _, clusterID := range ids {
@@ -399,41 +464,94 @@ func (s *Store) AuthenticateUser(username, password string) (*User, error) {
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		now := time.Now()
-		user.PasswordAttemptedAt = &now
-		user.PasswordAttemptCount++
-		_ = s.db.Save(&user).Error
+		if err := recordFailedAuthentication(s.db, &user, now); err != nil {
+			return nil, ErrInvalidCredentials
+		}
 		return nil, ErrInvalidCredentials
 	}
+	// 角色检查放在密码校验之后，避免仅凭用户名探测遗留账号；同时禁止
+	// 已移除的 inspector/viewer/approver 继续登录成“零权限用户”。
+	if err := validatePersistedUserRole(user.Role); err != nil {
+		return nil, err
+	}
 	now := time.Now()
+	if err := recordSuccessfulAuthentication(s.db, &user, now); err != nil {
+		if errors.Is(err, ErrInvalidCredentials) {
+			return nil, ErrInvalidCredentials
+		}
+		return nil, err
+	}
 	user.LastLoginAt = &now
 	user.PasswordAttemptedAt = nil
 	user.PasswordAttemptCount = 0
-	if err := s.db.Save(&user).Error; err != nil {
-		return nil, err
-	}
 	return &user, nil
 }
 
-func (s *Store) ChangeUserPassword(id uint, currentPassword, newPassword string) error {
-	user, err := s.GetUser(id)
-	if err != nil {
-		return err
+func authenticationSnapshotScope(db *gorm.DB, user *User, now time.Time) *gorm.DB {
+	query := db.Model(&User{}).
+		Where("id = ? AND deleted_at IS NULL", user.ID).
+		Where("password_hash = ? AND status = ? AND role = ?", user.PasswordHash, UserStatusActive, user.Role)
+	if user.ExpiresAt == nil {
+		return query.Where("expires_at IS NULL")
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+	return query.Where("expires_at = ? AND expires_at > ?", *user.ExpiresAt, now)
+}
+
+func recordFailedAuthentication(db *gorm.DB, user *User, now time.Time) error {
+	result := authenticationSnapshotScope(db, user, now).UpdateColumns(map[string]any{
+		"password_attempted_at":  &now,
+		"password_attempt_count": gorm.Expr("password_attempt_count + ?", 1),
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
 		return ErrInvalidCredentials
 	}
-	if strings.TrimSpace(currentPassword) == strings.TrimSpace(newPassword) {
-		return fmt.Errorf("新密码不能与当前密码相同")
+	return nil
+}
+
+func recordSuccessfulAuthentication(db *gorm.DB, user *User, now time.Time) error {
+	result := authenticationSnapshotScope(db, user, now).UpdateColumns(map[string]any{
+		"last_login_at":          &now,
+		"password_attempted_at":  nil,
+		"password_attempt_count": 0,
+	})
+	if result.Error != nil {
+		return result.Error
 	}
-	hash, err := HashPassword(newPassword)
-	if err != nil {
-		return err
+	if result.RowsAffected != 1 {
+		return ErrInvalidCredentials
 	}
-	user.PasswordHash = hash
-	user.PasswordChangeRequired = false
-	user.PasswordAttemptedAt = nil
-	user.PasswordAttemptCount = 0
-	return s.db.Save(user).Error
+	return nil
+}
+
+func (s *Store) ChangeUserPassword(id uint, currentPassword, newPassword string) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND deleted_at IS NULL", id).First(&user).Error; err != nil {
+			return err
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+			return ErrInvalidCredentials
+		}
+		if strings.TrimSpace(currentPassword) == strings.TrimSpace(newPassword) {
+			return fmt.Errorf("新密码不能与当前密码相同")
+		}
+		hash, err := HashPassword(newPassword)
+		if err != nil {
+			return err
+		}
+		user.PasswordHash = hash
+		user.PasswordChangeRequired = false
+		user.PasswordAttemptedAt = nil
+		user.PasswordAttemptCount = 0
+		if err := tx.Save(&user).Error; err != nil {
+			return err
+		}
+		return revokeAuthSessionsForUser(tx, id)
+	})
 }
 
 func (s *Store) ResetUserPassword(id uint) (*User, error) {
@@ -441,41 +559,93 @@ func (s *Store) ResetUserPassword(id uint) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	user, err := s.GetUser(id)
-	if err != nil {
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND deleted_at IS NULL", id).First(&user).Error; err != nil {
+			return err
+		}
+		user.PasswordHash = hash
+		user.PasswordChangeRequired = true
+		user.PasswordAttemptedAt = nil
+		user.PasswordAttemptCount = 0
+		if err := tx.Save(&user).Error; err != nil {
+			return err
+		}
+		return revokeAuthSessionsForUser(tx, id)
+	}); err != nil {
 		return nil, err
 	}
-	user.PasswordHash = hash
-	user.PasswordChangeRequired = true
-	user.PasswordAttemptedAt = nil
-	user.PasswordAttemptCount = 0
-	if err := s.db.Save(user).Error; err != nil {
-		return nil, err
-	}
-	_ = s.RevokeAuthSessionsForUser(id)
-	return user, nil
+	return s.GetUser(id)
 }
 
 func (s *Store) CountGlobalAdminsExcluding(excludedID uint) (int64, error) {
+	return countPersistentGlobalAdminsExcluding(s.db, excludedID)
+}
+
+func countPersistentGlobalAdminsExcluding(db *gorm.DB, excludedID uint) (int64, error) {
 	var count int64
-	err := s.db.Model(&User{}).
-		Where("deleted_at IS NULL AND role = ? AND id <> ?", UserRoleGlobalAdmin, excludedID).
+	err := db.Model(&User{}).
+		Where("deleted_at IS NULL AND role = ? AND status = ? AND id <> ?", UserRoleGlobalAdmin, UserStatusActive, excludedID).
+		Where("expires_at IS NULL").
 		Count(&count).Error
 	return count, err
 }
 
+func isPersistentGlobalAdmin(user *User) bool {
+	return user != nil && user.DeletedAt == nil &&
+		user.Role == UserRoleGlobalAdmin && user.Status == UserStatusActive &&
+		user.ExpiresAt == nil
+}
+
+func isUsableGlobalAdmin(user *User, now time.Time) bool {
+	return user != nil && user.DeletedAt == nil &&
+		user.Role == UserRoleGlobalAdmin && user.Status == UserStatusActive &&
+		(user.ExpiresAt == nil || user.ExpiresAt.After(now))
+}
+
+// lockGlobalAdminAnchor 先锁定 ID 最小的未删除全局管理员。
+// 所有可能改变管理员可用性的事务都遵循同一加锁顺序，避免并发请求各自通过复查。
+func lockGlobalAdminAnchor(tx *gorm.DB) error {
+	var anchor User
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("id").
+		Where("deleted_at IS NULL AND role = ?", UserRoleGlobalAdmin).
+		Order("id ASC").
+		First(&anchor).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	return err
+}
+
 func (s *Store) SoftDeleteUser(id uint) error {
-	user, err := s.GetUser(id)
-	if err != nil {
-		return err
-	}
-	now := time.Now()
-	user.DeletedAt = &now
-	user.Status = UserStatusDisabled
-	if err := s.db.Save(user).Error; err != nil {
-		return err
-	}
-	return s.RevokeAuthSessionsForUser(id)
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockGlobalAdminAnchor(tx); err != nil {
+			return err
+		}
+		var user User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND deleted_at IS NULL", id).First(&user).Error; err != nil {
+			return err
+		}
+		now := time.Now()
+		if isPersistentGlobalAdmin(&user) || isUsableGlobalAdmin(&user, now) {
+			count, err := countPersistentGlobalAdminsExcluding(tx, user.ID)
+			if err != nil {
+				return err
+			}
+			if count == 0 {
+				return ErrLastUsableGlobalAdmin
+			}
+		}
+		user.DeletedAt = &now
+		user.Status = UserStatusDisabled
+		if err := tx.Save(&user).Error; err != nil {
+			return err
+		}
+		return revokeAuthSessionsForUser(tx, id)
+	})
 }
 
 func (s *Store) PurgeDeletedUsers(retention time.Duration, now time.Time) (int64, error) {
@@ -487,7 +657,13 @@ func (s *Store) PurgeDeletedUsers(retention time.Duration, now time.Time) (int64
 	return result.RowsAffected, result.Error
 }
 
-func (s *Store) CreateAuthSession(userID uint, ttl time.Duration) (string, *AuthSession, error) {
+// CreateAuthSession 仅为仍与认证快照一致的用户签发会话。
+// 用户行锁保证签发与停用、改角色、改有效期、改密/重置密码互斥：先签发则
+// 后续安全变更会撤销该会话，安全变更先完成则快照校验失败。
+func (s *Store) CreateAuthSession(expected *User, ttl time.Duration) (string, *AuthSession, error) {
+	if expected == nil || expected.ID == 0 {
+		return "", nil, ErrInvalidCredentials
+	}
 	if ttl <= 0 {
 		ttl = 24 * time.Hour
 	}
@@ -495,12 +671,42 @@ func (s *Store) CreateAuthSession(userID uint, ttl time.Duration) (string, *Auth
 	if err != nil {
 		return "", nil, err
 	}
-	session := &AuthSession{
-		UserID:    userID,
-		TokenHash: hashToken(token),
-		ExpiresAt: time.Now().Add(ttl),
-	}
-	if err := s.db.Create(session).Error; err != nil {
+	var session *AuthSession
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		var current User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND deleted_at IS NULL", expected.ID).First(&current).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrInvalidCredentials
+			}
+			return err
+		}
+		now := time.Now()
+		if current.Status != UserStatusActive {
+			return ErrUserDisabled
+		}
+		if current.ExpiresAt != nil && !current.ExpiresAt.After(now) {
+			return ErrUserExpired
+		}
+		if err := validatePersistedUserRole(current.Role); err != nil {
+			return err
+		}
+		matchesSnapshot := current.ID == expected.ID &&
+			current.PasswordHash == expected.PasswordHash &&
+			current.Role == expected.Role &&
+			current.Status == expected.Status &&
+			optionalTimesEqual(current.ExpiresAt, expected.ExpiresAt) &&
+			current.PasswordChangeRequired == expected.PasswordChangeRequired
+		if !matchesSnapshot || current.PasswordChangeRequired {
+			return ErrInvalidCredentials
+		}
+		session = &AuthSession{
+			UserID:    current.ID,
+			TokenHash: hashToken(token),
+			ExpiresAt: now.Add(ttl),
+		}
+		return tx.Create(session).Error
+	}); err != nil {
 		return "", nil, err
 	}
 	return token, session, nil
@@ -528,6 +734,9 @@ func (s *Store) GetUserBySessionToken(token string) (*User, error) {
 	}
 	if user.ExpiresAt != nil && time.Now().After(*user.ExpiresAt) {
 		return nil, ErrUserExpired
+	}
+	if err := validatePersistedUserRole(user.Role); err != nil {
+		return nil, err
 	}
 	return user, nil
 }
@@ -559,11 +768,28 @@ func (s *Store) TouchAuthSession(token string, ttl time.Duration) (*User, *AuthS
 	if user.ExpiresAt != nil && now.After(*user.ExpiresAt) {
 		return nil, nil, ErrUserExpired
 	}
-	session.ExpiresAt = now.Add(ttl)
-	if err := s.db.Save(&session).Error; err != nil {
+	if err := validatePersistedUserRole(user.Role); err != nil {
 		return nil, nil, err
 	}
+	newExpiry := now.Add(ttl)
+	if err := refreshAuthSessionExpiry(s.db, session.ID, now, newExpiry); err != nil {
+		return nil, nil, err
+	}
+	session.ExpiresAt = newExpiry
 	return user, &session, nil
+}
+
+func refreshAuthSessionExpiry(db *gorm.DB, sessionID uint, now, expiresAt time.Time) error {
+	result := db.Model(&AuthSession{}).
+		Where("id = ? AND revoked_at IS NULL AND expires_at > ?", sessionID, now).
+		UpdateColumn("expires_at", expiresAt)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrInvalidSession
+	}
+	return nil
 }
 
 func (s *Store) RevokeAuthSession(token string) error {
@@ -578,8 +804,12 @@ func (s *Store) RevokeAuthSession(token string) error {
 }
 
 func (s *Store) RevokeAuthSessionsForUser(userID uint) error {
+	return revokeAuthSessionsForUser(s.db, userID)
+}
+
+func revokeAuthSessionsForUser(db *gorm.DB, userID uint) error {
 	now := time.Now()
-	return s.db.Model(&AuthSession{}).
+	return db.Model(&AuthSession{}).
 		Where("user_id = ? AND revoked_at IS NULL", userID).
 		Update("revoked_at", &now).Error
 }

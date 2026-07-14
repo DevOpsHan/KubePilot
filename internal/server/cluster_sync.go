@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -124,17 +125,43 @@ func (s *Server) handleListClusterResourceSnapshots(c echo.Context) error {
 	if err := s.requireClusterPermission(c, store.PermissionViewClusters, clusterID); err != nil {
 		return err
 	}
+	offset := 0
+	if raw := c.QueryParam("offset"); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed < 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "offset 必须是非负整数"})
+		}
+		offset = parsed
+	}
 	limit := 200
 	if raw := c.QueryParam("limit"); raw != "" {
-		if parsed, parseErr := strconv.Atoi(raw); parseErr == nil && parsed > 0 {
-			limit = parsed
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "limit 必须是正整数"})
 		}
+		limit = min(parsed, 200)
 	}
-	rows, err := s.store.ListClusterResourceSnapshots(clusterID, c.QueryParam("resource"), limit)
+	generation := strings.TrimSpace(c.QueryParam("generation"))
+	if len(generation) > 128 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "generation 参数过长"})
+	}
+	if offset > 0 && generation == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "后续分页必须携带 generation"})
+	}
+	page, err := s.store.ListClusterResourceSnapshotsPage(clusterID, c.QueryParam("resource"), generation, offset, limit)
+	if errors.Is(err, store.ErrClusterResourceSnapshotGenerationChanged) {
+		return c.JSON(http.StatusConflict, map[string]string{
+			"code":  "snapshot_generation_changed",
+			"error": "资源快照已更新，请重新加载第一页",
+		})
+	}
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
-	return c.JSON(http.StatusOK, map[string]any{"count": len(rows), "snapshots": rows})
+	return c.JSON(http.StatusOK, map[string]any{
+		"count": len(page.Snapshots), "offset": offset, "limit": limit,
+		"generation": page.Generation, "snapshots": page.Snapshots,
+	})
 }
 
 // handleGetClusterResourceObject 使用动态客户端实时获取单个对象并返回其 YAML。

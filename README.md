@@ -33,14 +33,14 @@ KubePilot is an intelligent operations platform for multi-cluster Kubernetes env
 
 ![KubePilot operations overview in English](docs/images/kubepilot-overview-en.png)
 
-The sidebar and command palette are permission-aware. Users see only the entries they are allowed to access, and direct access to a restricted route returns them to **Overview**.
+The sidebar and command palette are permission-aware. Users see only the entries they are allowed to access, and direct access to a restricted route returns them to **Home**.
 
 ### Navigation
 
 - **Home** (`/home`): the default landing page after sign-in, a centered welcome with a hand-drawn animated brand-bolt illustration (orbiting rings, pulsing glow) that echoes the login page's brand aurora background; its entry sits at the very top of the sidebar, and opening it collapses the Operations group back to the just-signed-in navigation state.
 - **Overview** (`/dashboard`): summarizes connected and healthy clusters, pending approvals, active alerts, synchronization timing, recent activity, and the active AI model.
 - **AI Chat** (`/chat`): accepts natural-language operations questions, queries cluster resources and status, reads Pod logs and live evidence, runs read-only diagnostic commands inside containers, starts inspections, and returns evidence-backed diagnosis and remediation guidance.
-- **Clusters** (`/clusters`): imports and manages kubeconfig-based clusters, runs synchronization, and continuously probes connectivity so a disconnected cluster is downgraded immediately. The cluster detail view is a single resource browser: a **Primary information** group (basic information, node status, synchronization status, namespaces, events, CRDs) sits above the grouped resources (workloads, network, configuration, storage), each filtered by namespace and name and refreshable on demand. Any object opens a side panel with its details and live YAML, and Pods additionally expose live logs and an interactive terminal (exec).
+- **Clusters** (`/clusters`): imports and manages kubeconfig-based clusters and runs synchronization. Connectivity is probed whenever the cluster list is loaded or refreshed, and clusters that fail that probe are marked disconnected. The cluster detail view is a single resource browser: a **Primary information** group (basic information, node status, synchronization status, namespaces, events, CRDs) sits above the grouped resources (workloads, network, configuration, storage), each filtered by namespace and name and refreshable on demand. Any object opens a side panel with its details and live YAML, and Pods additionally expose live logs and an interactive terminal (exec).
 - **AI Assistant** (`/models`): manages OpenAI-compatible model endpoints, model names, credentials, generation parameters, connectivity tests, enabled state, and the default model.
 - **Operations**: groups the inspection, alert, approval, audit, and policy workflows described below.
 - **Inspection Reports** (`/inspect-report`): starts cluster inspections and presents cross-cluster reports, detected anomalies, evidence, and diagnostic details.
@@ -195,6 +195,34 @@ AIOPS_FRONTEND_PORT=5174
 Changing the host-side Console address or port does not affect communication inside the Compose network.
 
 If Nginx, Caddy, or another reverse proxy already runs on the host, keep `AIOPS_FRONTEND_BIND_ADDRESS=127.0.0.1` and configure the upstream as `http://127.0.0.1:5174`. Only the reverse proxy's `80/443` ports then need to be exposed publicly.
+The outer proxy must preserve the browser-facing `Host` and protocol and forward
+the WebSocket upgrade headers; otherwise strict same-origin validation rejects Pod
+log-follow and terminal connections. For a minimal host-level Nginx setup, first add
+the following map to Nginx's `http` block (add the TLS certificate settings required
+by your environment):
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+}
+```
+
+Then add this location to the public HTTPS `server` block:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:5174;
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+}
+```
+
+Caddy and other proxies need the equivalent behavior: preserve the original Host,
+external protocol, and WebSocket upgrade information.
 
 Health checks in the Compose file also use `localhost` or `127.0.0.1` to access the current container itself. This is separate from KubePilot Core connections to other containers through the `mysql` and `redis` service names.
 
@@ -206,9 +234,9 @@ Health checks in the Compose file also use `localhost` or `127.0.0.1` to access 
 - Run background automatic synchronization, manual synchronization, and pre-inspection synchronization while recording task source, time, resource counts, and results.
 - Cache snapshots of Nodes, Namespaces, Pods, Deployments, DaemonSets, StatefulSets, Services, Ingresses, ConfigMaps, Secret metadata, Jobs, CronJobs, PVCs, PVs, Events, HPAs, CRDs, and other resources.
 - When the Kubernetes API Server becomes completely unreachable, mark the cluster and latest synchronization task as failed and show unexecuted incremental work as not executed. Preserve the latest successful resources while clearly identifying them as historical and stale data.
-- Continuously probe cluster connectivity from the cluster list and downgrade an unreachable cluster to disconnected immediately.
+- Probe cluster connectivity whenever the cluster list is loaded or manually refreshed, and update connection status from that probe.
 - Inspect resource versions, change counts, full-sync status, incremental rounds, and cached objects.
-- Browse cached resources grouped by category, drill into any object for its details and live YAML, and open live logs or an interactive read-only terminal (exec) for Pods.
+- Browse cached resources grouped by category, drill into any object for its details and live YAML, and open live logs or a fully interactive container terminal (exec) for Pods. Resource lists load 200 objects at a time and expose **Load more** instead of fetching and rendering an unbounded list. Subsequent pages carry the first page's snapshot generation; if synchronization switches the generation, the console discards the mixed result and reloads the first page. Multi-container Pods expose a container selector, with regular containers listed before init and ephemeral debug containers. One-shot logs default to the latest 500 lines, accept at most 5,000 lines, and are bounded to 30 seconds and 4 MiB; longer output is marked as truncated. The terminal is not read-only and is limited to users with the `clusters:exec` permission. Live log and terminal WebSocket sessions last at most 30 minutes and periodically revalidate the login session, role permission, and target-cluster grant; when a live log stream closes, the console immediately leaves follow mode instead of showing a stale tracking state.
 
 ### Inspections, Alerts, and Notifications
 
@@ -222,12 +250,12 @@ Health checks in the Compose file also use `localhost` or `127.0.0.1` to access 
 ### AI Diagnosis, Approval, and Remediation
 
 - Collect container status, Kubernetes Events, and crash logs as model evidence before diagnosis.
-- Let AI investigate proactively by reading Pod logs, gathering on-scene evidence, and running whitelisted read-only exec commands, with every AI-initiated action attributed to both the AI and the triggering user in the audit log.
+- Let AI investigate proactively by reading Pod logs, gathering on-scene evidence, and running argument-validated, whitelisted read-only exec commands. Each diagnostic exec has a 15-second hard timeout and records both its start and final result, attributed to the AI and the triggering user, in the audit log.
 - Configure models from KubePilot Console, including OpenAI-compatible endpoints, connection tests, enable/disable controls, and a default model.
 - Reply in the primary natural language of the user's latest question. Chinese and English can be switched turn by turn in the same conversation, while commands, logs, YAML, PromQL, and resource names remain unchanged.
 - Inject the authenticated account identity and role into each AI conversation. Identity questions are answered deterministically from the server-side session even when no model is enabled, conversation memory is isolated by user, and AI tools are restricted to the account's role permissions and authorized clusters.
 - Let AI propose actions while KubePilot Core resolves the actual execution target from trusted cluster objects rather than accepting a model-selected target.
-- Require human approval for every write operation.
+- Require human approval for AI-proposed and platform-controlled remediation writes. Users with `clusters:exec` can operate the interactive terminal directly, so terminal input is outside the remediation-ticket approval flow.
 - Recheck target resources asynchronously after remediation, automatically resolve related alerts after recovery, or mark them for manual intervention when recovery fails.
 - Record diagnosis, ticket creation, approval, execution, verification, and configuration changes in the audit log.
 
@@ -236,7 +264,10 @@ Health checks in the Compose file also use `localhost` or `127.0.0.1` to access 
 - Provide two roles: global administrator with the platform's highest privileges, and cluster administrator with full authority over granted clusters (including alerts, inspections, approvals, and controlled remediation).
 - Restrict user and role management to global administrators; cluster administrators focus on operating their granted clusters and do not manage users.
 - Grant cluster administrators access to one or more clusters.
+- **Upgrade from older releases:** removed `inspector`, `viewer`, and `approver` accounts are not upgraded automatically, preventing a formerly read-only or limited account from being silently promoted. Those accounts and their existing sessions are denied authentication until a global administrator edits the account in **Users** and explicitly chooses a supported role. Choosing cluster administrator also requires at least one cluster grant; the user signs in again after the change.
 - Support user expiration, disabling, mandatory first-login password changes, password resets, and retained soft deletion.
+- User editing can explicitly choose **Never expires**. The platform always preserves at least one active, non-expiring global administrator and rejects any role downgrade, disablement, finite expiration, or deletion that would remove that final persistent administrator.
+- Password changes and password resets update the password and revoke previous sessions atomically. Role, disabled-status, password, and expiration changes also revoke the affected user's existing sessions.
 - Expire login sessions after 30 minutes of inactivity and restart the idle window after each successful authenticated request.
 
 ### Interface and Internationalization

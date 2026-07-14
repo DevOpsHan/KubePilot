@@ -81,8 +81,21 @@ export async function syncAllClusters() { return (await http.post('/clusters/syn
 export async function syncCluster(id: number) { return (await http.post(`/clusters/${id}/sync`)).data }
 export async function getClusterSyncStatus() { return (await http.get('/clusters/sync/status')).data }
 export async function listClusterSyncResources(id: number) { return (await http.get(`/clusters/${id}/sync-resources`)).data }
-export async function listClusterResourceSnapshots(id: number, resource?: string) {
-  return (await http.get(`/clusters/${id}/resource-snapshots`, resource ? { params: { resource } } : undefined)).data
+export async function listClusterResourceSnapshots(
+  id: number,
+  resource?: string,
+  pagination: { offset?: number; limit?: number; generation?: string } = {},
+) {
+  const params = compactParams({
+    resource,
+    offset: pagination.offset,
+    limit: pagination.limit,
+    generation: pagination.generation,
+  })
+  return (await http.get(
+    `/clusters/${id}/resource-snapshots`,
+    Object.keys(params).length ? { params } : undefined,
+  )).data
 }
 export async function listClusterSyncTasks(id: number) { return (await http.get(`/clusters/${id}/sync-tasks`)).data }
 export async function getClusterResourceObject(

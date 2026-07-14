@@ -1,13 +1,26 @@
 package store
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
+
+var ErrClusterResourceSnapshotGenerationChanged = errors.New("资源快照代次已变化")
+
+const legacyClusterResourceSnapshotGeneration = "legacy"
+
+// ClusterResourceSnapshotPage 表示同一快照代次下的一页资源对象。
+type ClusterResourceSnapshotPage struct {
+	Generation string
+	Snapshots  []ClusterResourceSnapshot
+}
 
 // DefaultClusterInput 描述从启动配置推导出的默认集群。
 type DefaultClusterInput struct {
@@ -405,6 +418,10 @@ func (s *Store) ReplaceClusterResourceSnapshots(clusterID uint, resourceNames []
 	if clusterID == 0 {
 		return nil, gorm.ErrMissingWhereClause
 	}
+	generation, err := newClusterResourceSnapshotGeneration()
+	if err != nil {
+		return nil, err
+	}
 	names := uniqueResourceNames(resourceNames, rows)
 	changes := make(map[string]int, len(names))
 	for _, name := range names {
@@ -412,7 +429,11 @@ func (s *Store) ReplaceClusterResourceSnapshots(clusterID uint, resourceNames []
 	}
 	now := time.Now()
 
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		var cluster Cluster
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").First(&cluster, clusterID).Error; err != nil {
+			return err
+		}
 		var existing []ClusterResourceSnapshot
 		q := tx.Where("cluster_id = ?", clusterID)
 		if len(names) > 0 {
@@ -466,10 +487,14 @@ func (s *Store) ReplaceClusterResourceSnapshots(clusterID uint, resourceNames []
 		if err := deleteQuery.Delete(&ClusterResourceSnapshot{}).Error; err != nil {
 			return err
 		}
-		if len(rows) == 0 {
-			return nil
+		if len(rows) > 0 {
+			if err := tx.Create(&rows).Error; err != nil {
+				return err
+			}
 		}
-		return tx.Create(&rows).Error
+		return tx.Model(&Cluster{}).
+			Where("id = ?", clusterID).
+			UpdateColumn("resource_snapshot_generation", generation).Error
 	})
 	if err != nil {
 		return nil, err
@@ -477,14 +502,65 @@ func (s *Store) ReplaceClusterResourceSnapshots(clusterID uint, resourceNames []
 	return changes, nil
 }
 
+// ListClusterResourceSnapshotsPage 在同一数据库快照中校验代次并返回一页对象。
+func (s *Store) ListClusterResourceSnapshotsPage(clusterID uint, resourceName, generation string, offset, limit int) (*ClusterResourceSnapshotPage, error) {
+	page := &ClusterResourceSnapshotPage{}
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var cluster Cluster
+		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
+			Select("id", "resource_snapshot_generation").
+			First(&cluster, clusterID).Error; err != nil {
+			return err
+		}
+		currentGeneration := strings.TrimSpace(cluster.ResourceSnapshotGeneration)
+		if currentGeneration == "" {
+			currentGeneration = legacyClusterResourceSnapshotGeneration
+		}
+		if expected := strings.TrimSpace(generation); expected != "" && expected != currentGeneration {
+			return ErrClusterResourceSnapshotGenerationChanged
+		}
+
+		var rows []ClusterResourceSnapshot
+		q := tx.Where("cluster_id = ?", clusterID)
+		if resourceName = strings.TrimSpace(resourceName); resourceName != "" {
+			q = q.Where("resource_name = ?", resourceName)
+		}
+		q = q.Order("resource_name asc, namespace asc, name asc, id asc")
+		if offset > 0 {
+			q = q.Offset(offset)
+		}
+		if limit > 0 {
+			q = q.Limit(limit)
+		}
+		if err := q.Find(&rows).Error; err != nil {
+			return err
+		}
+		page.Generation = currentGeneration
+		page.Snapshots = rows
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return page, nil
+}
+
 // ListClusterResourceSnapshots 返回指定集群、指定资源类型的对象快照。
 func (s *Store) ListClusterResourceSnapshots(clusterID uint, resourceName string, limit int) ([]ClusterResourceSnapshot, error) {
+	return s.ListClusterResourceSnapshotsWithOffset(clusterID, resourceName, 0, limit)
+}
+
+// ListClusterResourceSnapshotsWithOffset 返回指定集群、指定资源类型的一页对象快照。
+func (s *Store) ListClusterResourceSnapshotsWithOffset(clusterID uint, resourceName string, offset, limit int) ([]ClusterResourceSnapshot, error) {
 	var rows []ClusterResourceSnapshot
 	q := s.db.Where("cluster_id = ?", clusterID)
 	if strings.TrimSpace(resourceName) != "" {
 		q = q.Where("resource_name = ?", strings.TrimSpace(resourceName))
 	}
-	q = q.Order("resource_name asc, namespace asc, name asc")
+	q = q.Order("resource_name asc, namespace asc, name asc, id asc")
+	if offset > 0 {
+		q = q.Offset(offset)
+	}
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
@@ -537,6 +613,14 @@ func uniqueResourceNames(names []string, rows []ClusterResourceSnapshot) []strin
 
 func snapshotKey(row ClusterResourceSnapshot) string {
 	return row.ResourceName + "\x00" + row.Namespace + "\x00" + row.Name
+}
+
+func newClusterResourceSnapshotGeneration() (string, error) {
+	value := make([]byte, 16)
+	if _, err := rand.Read(value); err != nil {
+		return "", fmt.Errorf("生成资源快照代次失败: %w", err)
+	}
+	return hex.EncodeToString(value), nil
 }
 
 func normalizeSlug(name string) string {

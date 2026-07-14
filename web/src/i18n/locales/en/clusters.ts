@@ -184,6 +184,8 @@ export const enClusters = {
     count_other: '{{count}} objects',
     refresh: 'Refresh',
     loading: 'Loading…',
+    loadMore: 'Load more',
+    loadingMore: 'Loading…',
     empty: 'No resource objects yet. Wait for auto sync or click "Sync / Refresh".',
     copied: 'YAML copied to clipboard',
     copyFailed: 'Copy failed, please select and copy manually',

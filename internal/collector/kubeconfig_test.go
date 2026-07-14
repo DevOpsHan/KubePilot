@@ -65,6 +65,21 @@ func TestNewRestConfigAppliesDefaultTimeout(t *testing.T) {
 	}
 }
 
+func TestNewClientsetsWithConfigReturnsRestConfig(t *testing.T) {
+	kubeconfigPath := writeContextKubeconfig(t)
+
+	_, _, _, cfg, source, err := NewClientsetsWithConfig(kubeconfigPath)
+	if err != nil {
+		t.Fatalf("构建带 REST 配置的客户端失败: %v", err)
+	}
+	if cfg == nil || cfg.Host != "https://a.example.invalid" {
+		t.Fatalf("默认运行时必须保留原始 REST 配置: %+v", cfg)
+	}
+	if source != "kubeconfig:"+kubeconfigPath {
+		t.Fatalf("来源描述不正确: %q", source)
+	}
+}
+
 func writeContextKubeconfig(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config")

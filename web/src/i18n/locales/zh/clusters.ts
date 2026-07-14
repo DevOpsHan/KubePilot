@@ -183,6 +183,8 @@ export const zhClusters = {
     refreshed_other: '已刷新，共 {{count}} 个对象',
     refresh: '刷新',
     loading: '加载中…',
+    loadMore: '加载更多',
+    loadingMore: '加载中…',
     empty: '暂无资源对象,请等待自动同步或点击「同步 / 刷新」。',
     copied: 'YAML 已复制到剪贴板',
     copyFailed: '复制失败,请手动选择复制',

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -155,6 +156,50 @@ func TestToolExecutorRejectsUnmappedToolByDefault(t *testing.T) {
 	got := executor.Execute(context.Background(), 0, unrestrictedChatAccess(), UserIdentity{}, "future_unmapped_tool", "{}")
 	if !strings.Contains(got, "没有权限") {
 		t.Fatalf("未登记权限映射的工具应默认拒绝: %s", got)
+	}
+}
+
+func TestExecDiagnosticUsesHardTimeoutAndAuditsLifecycle(t *testing.T) {
+	st := openAgentTestStore(t)
+	cluster := createAgentTestCluster(t, st, "诊断超时集群")
+	manager := clusterruntime.NewManager()
+	registerChatRuntime(t, manager, cluster, "node-timeout")
+
+	executor := NewToolExecutor(nil, nil, st, nil, cluster.ID, manager)
+	executor.diagnosticExecTimeout = 20 * time.Millisecond
+	executor.execCapture = func(ctx context.Context, _ *collector.Collector, _, _, _ string, _ []string) (string, string, error) {
+		<-ctx.Done()
+		return "", "", ctx.Err()
+	}
+
+	startedAt := time.Now()
+	got := executor.Execute(
+		context.Background(),
+		cluster.ID,
+		diagnosticChatAccess(),
+		UserIdentity{Username: "operator", DisplayName: "运维员", Role: store.UserRoleClusterAdmin},
+		"exec_diagnostic",
+		`{"namespace":"default","pod":"demo","container":"app","command":["ps","aux"]}`,
+	)
+	if elapsed := time.Since(startedAt); elapsed > time.Second {
+		t.Fatalf("诊断命令应被硬超时终止,实际耗时 %s", elapsed)
+	}
+	if !strings.Contains(got, "超时") {
+		t.Fatalf("超时结果应给出明确提示: %s", got)
+	}
+
+	audits, err := st.ListAudits(cluster.ID, 10)
+	if err != nil {
+		t.Fatalf("读取诊断审计失败: %v", err)
+	}
+	if len(audits) != 2 {
+		t.Fatalf("诊断命令应同时记录开始和结束审计,got=%+v", audits)
+	}
+	if audits[1].Action != "ai:exec_diagnostic:start" || audits[1].Result != "开始" {
+		t.Fatalf("开始审计不正确: %+v", audits[1])
+	}
+	if audits[0].Action != "ai:exec_diagnostic" || !strings.Contains(audits[0].Result, "超时") {
+		t.Fatalf("结束审计不正确: %+v", audits[0])
 	}
 }
 

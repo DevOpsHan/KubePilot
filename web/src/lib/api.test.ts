@@ -48,6 +48,7 @@ import {
   apiFetch,
   changePassword,
   getCurrentUser,
+  listClusterResourceSnapshots,
   login,
 } from './api'
 
@@ -161,5 +162,18 @@ describe('鉴权过期语义事件', () => {
     } finally {
       events.cleanup()
     }
+  })
+})
+
+describe('资源快照分页参数', () => {
+  it('传递资源类型、偏移量、每页数量和快照代次', async () => {
+    axiosMock.http.get.mockResolvedValueOnce({ data: { snapshots: [] } } as never)
+
+    await listClusterResourceSnapshots(7, 'pods', { offset: 200, limit: 200, generation: 'gen-1' })
+
+    expect(axiosMock.http.get).toHaveBeenLastCalledWith(
+      '/clusters/7/resource-snapshots',
+      { params: { resource: 'pods', offset: 200, limit: 200, generation: 'gen-1' } },
+    )
   })
 })

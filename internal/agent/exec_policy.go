@@ -50,7 +50,34 @@ const shellMetaChars = ";&|`$><\n\r"
 // dangerousIPSubcommands 是 ip 命令中会修改网络配置的写子命令。
 var dangerousIPSubcommands = map[string]struct{}{
 	"add": {}, "del": {}, "delete": {}, "set": {}, "change": {},
-	"replace": {}, "flush": {}, "up": {}, "down": {},
+	"replace": {}, "flush": {}, "up": {}, "down": {}, "append": {},
+	"prepend": {}, "restore": {}, "attach": {}, "detach": {},
+	"rename": {}, "move": {}, "push": {}, "pop": {}, "reset": {},
+	"exec": {}, "monitor": {}, "batch": {},
+}
+
+var dangerousFindActions = map[string]struct{}{
+	"-delete":  {},
+	"-exec":    {},
+	"-execdir": {},
+	"-ok":      {},
+	"-okdir":   {},
+	"-fls":     {},
+	"-fprint":  {},
+	"-fprint0": {},
+	"-fprintf": {},
+}
+
+var safeHostnameArgs = map[string]struct{}{
+	"-a": {}, "--alias": {}, "-A": {}, "--all-fqdns": {},
+	"-d": {}, "--domain": {}, "-f": {}, "--fqdn": {}, "--long": {},
+	"-i": {}, "--ip-address": {}, "-I": {}, "--all-ip-addresses": {},
+	"-s": {}, "--short": {}, "-y": {}, "--yp": {}, "--nis": {},
+	"-h": {}, "--help": {}, "-V": {}, "--version": {},
+}
+
+var safeMountArgs = map[string]struct{}{
+	"-l": {}, "--show-labels": {}, "-v": {}, "--verbose": {}, "-lv": {}, "-vl": {},
 }
 
 // ValidateDiagnosticCommand 校验 AI 诊断命令是否为白名单内的只读命令。
@@ -76,13 +103,255 @@ func ValidateDiagnosticCommand(command []string) error {
 			return fmt.Errorf("诊断命令参数包含禁止的 shell 元字符(; & | ` $ > < 等):%q", arg)
 		}
 	}
-	// ip 命令仅允许只读子命令(ip addr / ip route / ip link show 等),拦截写子命令。
-	if head == "ip" {
+
+	switch head {
+	case "env":
+		// env 后出现普通参数时会把它当作可执行程序,因此只允许直接打印环境变量。
 		for _, arg := range command[1:] {
-			if _, bad := dangerousIPSubcommands[strings.ToLower(strings.TrimSpace(arg))]; bad {
-				return fmt.Errorf("ip 命令只允许查看类子命令,拒绝会修改网络配置的子命令:%q", arg)
+			if arg != "-0" && arg != "--null" && arg != "--help" && arg != "--version" {
+				return fmt.Errorf("env 仅允许直接查看环境变量,不允许设置变量或启动其他程序:%q", arg)
 			}
 		}
+	case "find":
+		for _, arg := range command[1:] {
+			if _, bad := dangerousFindActions[strings.ToLower(strings.TrimSpace(arg))]; bad {
+				return fmt.Errorf("find 仅允许查找和打印,拒绝会删除、执行程序或写文件的动作:%q", arg)
+			}
+		}
+	case "sort":
+		if err := validateReadOnlySortArgs(command[1:]); err != nil {
+			return err
+		}
+	case "date":
+		if err := validateReadOnlyDateArgs(command[1:]); err != nil {
+			return err
+		}
+	case "tail":
+		for _, arg := range command[1:] {
+			lower := strings.ToLower(strings.TrimSpace(arg))
+			if matchesLongOption(lower, "--retry") || matchesLongOption(lower, "--follow") ||
+				matchesLongOption(lower, "--pid") ||
+				strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.ContainsAny(strings.TrimPrefix(arg, "-"), "fF") {
+				return fmt.Errorf("tail 仅允许一次性读取,拒绝持续跟随参数:%q", arg)
+			}
+		}
+	case "hostname":
+		for _, arg := range command[1:] {
+			if _, ok := safeHostnameArgs[arg]; !ok {
+				return fmt.Errorf("hostname 仅允许查看主机信息,拒绝可能修改主机名的参数:%q", arg)
+			}
+		}
+	case "mount":
+		for _, arg := range command[1:] {
+			if _, ok := safeMountArgs[arg]; !ok {
+				return fmt.Errorf("mount 仅允许列出当前挂载,拒绝挂载、卸载或批量操作参数:%q", arg)
+			}
+		}
+	case "ss":
+		for _, arg := range command[1:] {
+			trimmed := strings.TrimSpace(arg)
+			if matchesLongOption(strings.ToLower(trimmed), "--kill") ||
+				strings.HasPrefix(trimmed, "-") && !strings.HasPrefix(trimmed, "--") && strings.Contains(strings.TrimPrefix(trimmed, "-"), "K") {
+				return fmt.Errorf("ss 仅允许查看 socket,拒绝销毁连接的参数:%q", arg)
+			}
+		}
+	case "nslookup":
+		hasTarget := false
+		for _, arg := range command[1:] {
+			if trimmed := strings.TrimSpace(arg); trimmed != "" && !strings.HasPrefix(trimmed, "-") {
+				hasTarget = true
+				break
+			}
+		}
+		if !hasTarget {
+			return fmt.Errorf("nslookup 必须指定查询目标,不允许进入交互模式")
+		}
+	case "uniq":
+		if err := validateReadOnlyUniqArgs(command[1:]); err != nil {
+			return err
+		}
+	case "ip":
+		if err := validateReadOnlyIPArgs(command[1:]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// matchesLongOption 同时识别 GNU/getopt 风格的唯一长参数缩写。
+// 例如 --out=/tmp/x 会被 sort 当成 --output=/tmp/x，安全校验也必须按
+// 实际命令的解析方式处理，不能只比较完整拼写。
+func matchesLongOption(argument, fullOption string) bool {
+	argument = strings.ToLower(strings.TrimSpace(argument))
+	fullOption = strings.ToLower(strings.TrimSpace(fullOption))
+	if argument == "--" || !strings.HasPrefix(argument, "--") {
+		return false
+	}
+	if index := strings.IndexByte(argument, '='); index >= 0 {
+		argument = argument[:index]
+	}
+	return len(argument) > 2 && strings.HasPrefix(fullOption, argument)
+}
+
+func validateReadOnlySortArgs(args []string) error {
+	optionsEnded := false
+	for _, arg := range args {
+		trimmed := strings.TrimSpace(arg)
+		lower := strings.ToLower(trimmed)
+		if !optionsEnded && trimmed == "--" {
+			optionsEnded = true
+			continue
+		}
+		if optionsEnded || !strings.HasPrefix(trimmed, "-") || trimmed == "-" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "--") {
+			if matchesLongOption(lower, "--output") ||
+				matchesLongOption(lower, "--compress-program") ||
+				matchesLongOption(lower, "--temporary-directory") {
+				return fmt.Errorf("sort 仅允许把结果输出到标准输出,拒绝写文件或启动外部程序:%q", arg)
+			}
+			continue
+		}
+
+		// sort/BusyBox sort 允许组合短参数，例如 -ro/tmp/out 等价于
+		// -r -o /tmp/out。逐个解析无值开关；遇到 k/S/t 后，其余字符
+		// 是该安全选项的取值，不能把分隔符中的 T/o 误判成新选项。
+		for index := 1; index < len(trimmed); index++ {
+			switch trimmed[index] {
+			case 'o', 'T':
+				return fmt.Errorf("sort 仅允许把结果输出到标准输出,拒绝写文件或指定临时目录:%q", arg)
+			case 'k', 'S', 't':
+				index = len(trimmed)
+			}
+		}
+	}
+	return nil
+}
+
+func validateReadOnlyUniqArgs(args []string) error {
+	operands := 0
+	expectsValue := false
+	optionsEnded := false
+	for _, arg := range args {
+		trimmed := strings.TrimSpace(arg)
+		if expectsValue {
+			expectsValue = false
+			continue
+		}
+		if !optionsEnded && trimmed == "--" {
+			optionsEnded = true
+			continue
+		}
+		if !optionsEnded {
+			switch trimmed {
+			case "-f", "--skip-fields", "-s", "--skip-chars", "-w", "--check-chars":
+				expectsValue = true
+				continue
+			}
+			if strings.HasPrefix(trimmed, "--skip-fields=") || strings.HasPrefix(trimmed, "--skip-chars=") ||
+				strings.HasPrefix(trimmed, "--check-chars=") || strings.HasPrefix(trimmed, "--group=") {
+				continue
+			}
+			if strings.HasPrefix(trimmed, "-") && trimmed != "-" || strings.HasPrefix(trimmed, "+") {
+				continue
+			}
+		}
+		operands++
+		if operands > 1 {
+			return fmt.Errorf("uniq 仅允许从标准输入或一个输入文件读取,拒绝指定输出文件:%q", arg)
+		}
+	}
+	if expectsValue {
+		return fmt.Errorf("uniq 查看参数缺少取值")
+	}
+	return nil
+}
+
+func validateReadOnlyIPArgs(args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	index := 0
+	for index < len(args) && strings.HasPrefix(strings.TrimSpace(args[index]), "-") {
+		option := strings.TrimSpace(args[index])
+		switch option {
+		case "-4", "-6", "-B", "-0", "-o", "-br", "-brief", "-j", "-json", "-p", "-pretty", "-d", "-details", "-s", "-stats", "-statistics", "-h", "-human", "-iec", "-V", "-Version":
+			index++
+			continue
+		default:
+			return fmt.Errorf("ip 命令只允许常用查看参数,拒绝批处理或其他高风险全局参数:%q", args[index])
+		}
+	}
+	if index >= len(args) {
+		return nil
+	}
+	object := strings.ToLower(strings.TrimSpace(args[index]))
+	index++
+	if object == "help" {
+		if index == len(args) {
+			return nil
+		}
+		return fmt.Errorf("ip help 后不允许附加其他命令")
+	}
+	allowedActions := map[string]map[string]struct{}{
+		"addr":     {"show": {}, "list": {}},
+		"address":  {"show": {}, "list": {}},
+		"link":     {"show": {}, "list": {}},
+		"route":    {"show": {}, "list": {}, "get": {}},
+		"neigh":    {"show": {}, "list": {}},
+		"neighbor": {"show": {}, "list": {}},
+		"rule":     {"show": {}, "list": {}},
+	}
+	actions, ok := allowedActions[object]
+	if !ok {
+		return fmt.Errorf("ip 仅允许查看 addr/link/route/neigh/rule,拒绝对象或动作:%q", object)
+	}
+	if index >= len(args) {
+		return nil
+	}
+	action := strings.ToLower(strings.TrimSpace(args[index]))
+	if _, ok := actions[action]; !ok {
+		if _, dangerous := dangerousIPSubcommands[action]; dangerous {
+			return fmt.Errorf("ip 命令只允许查看,拒绝修改、执行或持续监听子命令:%q", args[index])
+		}
+		return fmt.Errorf("ip 对象 %q 仅允许 show/list/get 查看动作,拒绝:%q", object, args[index])
+	}
+	return nil
+}
+
+func validateReadOnlyDateArgs(args []string) error {
+	expectsValue := false
+	for _, arg := range args {
+		trimmed := strings.TrimSpace(arg)
+		lower := strings.ToLower(trimmed)
+		if expectsValue {
+			expectsValue = false
+			continue
+		}
+		if lower == "-s" || strings.HasPrefix(lower, "-s") && len(lower) > 2 ||
+			lower == "--set" || strings.HasPrefix(lower, "--set=") {
+			return fmt.Errorf("date 仅允许查看或格式化时间,拒绝修改系统时间的参数:%q", arg)
+		}
+		if strings.HasPrefix(trimmed, "+") {
+			continue
+		}
+		switch trimmed {
+		case "-u", "--utc", "--universal", "-R", "--rfc-email", "--debug", "--help", "--version", "--resolution":
+			continue
+		case "-d", "--date", "-f", "--file", "-r", "--reference":
+			expectsValue = true
+			continue
+		}
+		if strings.HasPrefix(lower, "--date=") || strings.HasPrefix(lower, "--file=") ||
+			strings.HasPrefix(lower, "--reference=") || strings.HasPrefix(lower, "--iso-8601") ||
+			strings.HasPrefix(lower, "--rfc-3339=") {
+			continue
+		}
+		return fmt.Errorf("date 仅允许查看或格式化时间,拒绝可能修改系统时间的参数:%q", arg)
+	}
+	if expectsValue {
+		return fmt.Errorf("date 查看参数缺少取值")
 	}
 	return nil
 }

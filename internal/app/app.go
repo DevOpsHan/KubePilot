@@ -57,7 +57,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 	}
 
 	// K8S 客户端 + 巡检引擎 + 修复执行器
-	clientset, metricsClient, dynamicClient, source, err := collector.NewClientsets(cfg.Kubernetes.Kubeconfig)
+	clientset, metricsClient, dynamicClient, restConfig, source, err := collector.NewClientsetsWithConfig(cfg.Kubernetes.Kubeconfig)
 	var col *collector.Collector
 	var engine *inspect.Engine
 	var remediator *remediate.Executor
@@ -65,7 +65,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 		logger.Warn("K8S 客户端初始化失败,集群采集/巡检/修复暂不可用", zap.Error(err))
 	} else {
 		logger.Info("K8S 客户端就绪", zap.String("source", source))
-		col = collector.NewWithMetricsAndDynamic(clientset, metricsClient, dynamicClient)
+		col = collector.NewWithMetricsDynamicAndConfig(clientset, metricsClient, dynamicClient, restConfig)
 		engine = inspect.NewEngine(col, nil)
 		remediator = remediate.New(clientset, cfg.Remediation.Enabled)
 		logger.Info("修复执行器就绪", zap.Bool("enabled", cfg.Remediation.Enabled))

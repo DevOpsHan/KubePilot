@@ -208,20 +208,21 @@ const DefaultClusterSlug = "default"
 
 // Cluster 表示一个可被平台运维的 Kubernetes 集群。
 type Cluster struct {
-	ID              uint       `gorm:"primaryKey" json:"id"`
-	Name            string     `gorm:"size:128;not null" json:"name"`
-	Slug            string     `gorm:"size:128;uniqueIndex;not null" json:"slug"`
-	Description     string     `gorm:"size:512" json:"description"`
-	Mode            string     `gorm:"size:32;not null" json:"mode"`
-	ContextName     string     `gorm:"size:256" json:"context_name"`
-	APIServerHost   string     `gorm:"size:512" json:"api_server_host"`
-	Version         string     `gorm:"size:128" json:"version"`
-	Status          string     `gorm:"size:32;not null;default:unknown" json:"status"`
-	Enabled         bool       `gorm:"not null;default:true" json:"enabled"`
-	LastValidatedAt *time.Time `json:"last_validated_at,omitempty"`
-	LastError       string     `gorm:"type:text" json:"last_error"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID                         uint       `gorm:"primaryKey" json:"id"`
+	Name                       string     `gorm:"size:128;not null" json:"name"`
+	Slug                       string     `gorm:"size:128;uniqueIndex;not null" json:"slug"`
+	Description                string     `gorm:"size:512" json:"description"`
+	Mode                       string     `gorm:"size:32;not null" json:"mode"`
+	ContextName                string     `gorm:"size:256" json:"context_name"`
+	APIServerHost              string     `gorm:"size:512" json:"api_server_host"`
+	Version                    string     `gorm:"size:128" json:"version"`
+	Status                     string     `gorm:"size:32;not null;default:unknown" json:"status"`
+	Enabled                    bool       `gorm:"not null;default:true" json:"enabled"`
+	LastValidatedAt            *time.Time `json:"last_validated_at,omitempty"`
+	LastError                  string     `gorm:"type:text" json:"last_error"`
+	ResourceSnapshotGeneration string     `gorm:"size:64" json:"-"`
+	CreatedAt                  time.Time  `json:"created_at"`
+	UpdatedAt                  time.Time  `json:"updated_at"`
 }
 
 // ClusterCredential 保存集群访问凭据。敏感字段必须加密后再写入。
@@ -362,7 +363,7 @@ type User struct {
 	DisplayName            string             `gorm:"size:128" json:"display_name"`
 	Email                  string             `gorm:"size:256" json:"email"`
 	PasswordHash           string             `gorm:"type:text" json:"-"`
-	Role                   string             `gorm:"size:32;not null;default:inspector" json:"role"`
+	Role                   string             `gorm:"size:32;not null;default:cluster_admin" json:"role"`
 	Status                 string             `gorm:"size:32;not null;default:active" json:"status"`
 	ExpiresAt              *time.Time         `json:"expires_at,omitempty"`
 	PasswordChangeRequired bool               `gorm:"not null;default:false" json:"password_change_required"`
