@@ -1,1 +1,16 @@
+# 统一行尾:文本文件一律 LF,杜绝 Windows 下 CRLF/LF 混杂
+* text=auto eol=lf
+
+# 脚本必须 LF,否则 shebang 在 Linux 下失效
 *.sh text eol=lf
+
+# 二进制文件:禁止任何行尾/文本处理
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
