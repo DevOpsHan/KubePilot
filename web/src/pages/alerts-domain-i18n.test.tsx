@@ -173,6 +173,7 @@ beforeEach(() => {
     user: { username: 'admin' },
     permissions: ['alerts:manage', 'notifications:manage'],
     loading: false,
+    loggingOut: false,
     authenticated: true,
     can: () => true,
     refresh: vi.fn().mockResolvedValue(undefined),

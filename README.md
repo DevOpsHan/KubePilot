@@ -49,7 +49,7 @@ The sidebar and command palette are permission-aware. Users see only the entries
 - **Audit** (`/audit`): centralizes platform operation records and supports filtering by cluster, user, action, and time.
 - **Inspection Settings** (`/inspection-settings`): configures built-in and custom inspection rules, inheritance and enablement, Prometheus connectivity, and custom PromQL validation.
 - **Users** (`/users`): manages users, roles, cluster grants, account expiration and status, password resets, and soft deletion.
-- **Log out**: securely ends the current session from the bottom of the sidebar.
+- **Log out**: the sidebar log-out command first asks for confirmation, then shows a "Signed out successfully" toast and returns to the login page through a brief loading transition.
 
 ### Header Controls
 
@@ -59,6 +59,7 @@ The sidebar and command palette are permission-aware. Users see only the entries
 - **ZH / EN**: switches the complete application interface between Simplified Chinese and English.
 - **Signed-in account**: displays only the authenticated username in the top-right corner and updates when the account changes.
 - **Login greeting**: after a successful sign-in, a personalized welcome toast pops up based on the time of day (morning / afternoon / evening) and shows the current username.
+- **Login feedback**: the sign-in button enters a loading state with a spinner on submit to prevent duplicate submissions.
 
 ## Installation and Startup
 

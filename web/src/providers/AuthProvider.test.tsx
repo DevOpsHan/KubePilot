@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { I18nextProvider, useTranslation } from 'react-i18next'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -187,7 +187,8 @@ describe('AuthProvider 会话语义状态', () => {
 
     await userActions.click(screen.getByRole('button', { name: '设置原始通知' }))
     await userActions.click(screen.getByRole('button', { name: '退出登录' }))
-    expect(screen.getByTestId('authenticated')).toHaveTextContent('false')
+    // 退出带加载态与短暂过渡,等状态清理完成后再断言
+    await waitFor(() => expect(screen.getByTestId('authenticated')).toHaveTextContent('false'))
     expect(screen.getByTestId('expired-reason')).toHaveTextContent('none')
     expect(screen.getByTestId('login-notice')).toBeEmptyDOMElement()
   })

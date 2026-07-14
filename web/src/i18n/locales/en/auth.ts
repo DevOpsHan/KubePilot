@@ -46,4 +46,10 @@ export const enAuth = {
     idle: 'You were signed out after 30 minutes of inactivity. Please sign in again.',
     unauthorized: 'Your session has expired. Please sign in again.',
   },
+  logout: {
+    confirmTitle: 'Sign out',
+    confirmMessage: 'Are you sure you want to sign out?',
+    success: 'Signed out successfully',
+    signingOut: 'Signing out…',
+  },
 } as const satisfies LocaleShape<typeof zhAuth>

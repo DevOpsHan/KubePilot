@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAppI18n, type SupportedLanguage } from '@/i18n'
 import { useAuth } from '@/providers/AuthProvider'
+import { ConfirmProvider } from '@/providers/ConfirmProvider'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 
@@ -27,6 +28,7 @@ function setAuthenticatedUser(user: ReturnType<typeof useAuth>['user']) {
     user,
     permissions: [],
     loading: false,
+    loggingOut: false,
     authenticated: Boolean(user),
     can: () => true,
     refresh: vi.fn().mockResolvedValue(undefined),
@@ -57,7 +59,9 @@ async function renderSidebar(language: SupportedLanguage) {
   return render(
     <I18nextProvider i18n={i18n}>
       <MemoryRouter initialEntries={['/dashboard']}>
-        <Sidebar alertCount={0} pendingCount={0} />
+        <ConfirmProvider>
+          <Sidebar alertCount={0} pendingCount={0} />
+        </ConfirmProvider>
       </MemoryRouter>
     </I18nextProvider>,
   )
@@ -124,6 +128,8 @@ describe('布局登录身份展示', () => {
     expect(screen.queryByText('global_admin')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Log out' }))
+    // 退出前先弹确认框,点「确定」后才真正退出
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
     expect(logoutAction).toHaveBeenCalledTimes(1)
   })
 })

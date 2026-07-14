@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { getCurrentUser, logout as logoutApi } from '@/lib/api'
+import { notify } from '@/lib/toast'
 
 interface User {
   username: string
@@ -24,6 +26,7 @@ interface AuthCtx {
   user: User | null
   permissions: string[]
   loading: boolean
+  loggingOut: boolean
   authenticated: boolean
   can: (p: string) => boolean
   refresh: () => Promise<void>
@@ -50,9 +53,11 @@ function sessionReasonFromEvent(event: Event): SessionReason | undefined {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation('auth')
   const [user, setUser] = useState<User | null>(null)
   const [permissions, setPermissions] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
+  const [loggingOut, setLoggingOut] = useState(false)
   const [loginNotice, setLoginNoticeState] = useState<LoginNotice>(null)
   const [expiredReason, setExpiredReason] = useState<SessionReason | null>(null)
   const idleTimer = useRef<number | null>(null)
@@ -105,10 +110,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await refresh()
   }, [refresh])
 
+  // 退出登录:先进入退出加载态并给出成功提示,短暂过渡后再回到登录页。
   const logout = useCallback(async () => {
+    setLoggingOut(true)
     try { await logoutApi() } catch { /* local logout */ }
+    notify.success(t('logout.success'))
+    await new Promise((resolve) => setTimeout(resolve, 600))
     clearState()
-  }, [clearState])
+    setLoggingOut(false)
+  }, [clearState, t])
 
   const dismissExpired = useCallback(() => {
     const notice: LoginNotice = expiredReason
@@ -166,7 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      user, permissions, loading, authenticated: authed, can, refresh, onLoggedIn, logout,
+      user, permissions, loading, loggingOut, authenticated: authed, can, refresh, onLoggedIn, logout,
       loginNotice, setLoginNotice, expiredReason, dismissExpired,
     }}>
       {children}

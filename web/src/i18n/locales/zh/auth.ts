@@ -43,4 +43,10 @@ export const zhAuth = {
     idle: '登录已超过 30 分钟无操作，请重新登录。',
     unauthorized: '会话已过期，请重新登录。',
   },
+  logout: {
+    confirmTitle: '退出登录',
+    confirmMessage: '确定要退出当前登录吗？',
+    success: '已成功退出登录',
+    signingOut: '正在退出…',
+  },
 } as const

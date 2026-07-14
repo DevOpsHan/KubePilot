@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Server, Zap, ShieldCheck } from 'lucide-react'
+import { Server, Zap, ShieldCheck, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { normalizeLanguage } from '@/i18n'
 import { localizeApiError, type CommonErrorKey } from '@/i18n/errors'
@@ -189,7 +189,9 @@ export function LoginPage() {
                   <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t('login.passwordPlaceholder')} />
                 </div>
                 {errorMessage && <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{errorMessage}</div>}
-                <Button type="submit" className="h-11 w-full" disabled={busy}>{busy ? t('login.signingIn') : t('login.signIn')}</Button>
+                <Button type="submit" className="h-11 w-full" disabled={busy}>
+                  {busy ? <span className="inline-flex items-center gap-2"><Loader2 className="size-4 animate-spin" />{t('login.signingIn')}</span> : t('login.signIn')}
+                </Button>
               </form>
             ) : (
               <form onSubmit={submitChange} className="space-y-4">
@@ -203,7 +205,9 @@ export function LoginPage() {
                   <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder={t('login.passwordPlaceholder')} />
                 </div>
                 {errorMessage && <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{errorMessage}</div>}
-                <Button type="submit" className="h-11 w-full" disabled={busy}>{busy ? t('login.changing') : t('login.changeSubmit')}</Button>
+                <Button type="submit" className="h-11 w-full" disabled={busy}>
+                  {busy ? <span className="inline-flex items-center gap-2"><Loader2 className="size-4 animate-spin" />{t('login.changing')}</span> : t('login.changeSubmit')}
+                </Button>
               </form>
             )}
           </div>

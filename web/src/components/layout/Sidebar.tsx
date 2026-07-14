@@ -10,6 +10,7 @@ import {
   type NavGroup,
 } from './nav'
 import { useAuth } from '@/providers/AuthProvider'
+import { useConfirm } from '@/providers/ConfirmProvider'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 
@@ -28,9 +29,20 @@ function CountBadge({ n }: { n: number }) {
 export function Sidebar({ alertCount, pendingCount }: { alertCount: number; pendingCount: number }) {
   const { can, logout } = useAuth()
   const { t } = useTranslation('common')
+  const { t: tAuth } = useTranslation('auth')
+  const confirm = useConfirm()
   const { pathname } = useLocation()
 
   const [collapsed, setCollapsed] = useState<Record<CollapsibleNavKey, boolean>>(() => ({ ...DEFAULT_COLLAPSED }))
+
+  // 退出前先弹确认框,确认后再走退出流程(带加载态与成功提示)。
+  async function handleLogout() {
+    const ok = await confirm({
+      title: tAuth('logout.confirmTitle'),
+      message: tAuth('logout.confirmMessage'),
+    })
+    if (ok) await logout()
+  }
 
   function toggleGroup(key: CollapsibleNavKey) {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))
@@ -113,7 +125,7 @@ export function Sidebar({ alertCount, pendingCount }: { alertCount: number; pend
 
       {/* 底部仅保留退出命令,当前身份统一在顶栏展示。 */}
       <div className="border-t border-sidebar-border p-3">
-        <button onClick={logout}
+        <button onClick={handleLogout}
           className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive">
           <LogOut className="size-4" /> {t('sidebar.logout')}
         </button>

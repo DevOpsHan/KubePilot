@@ -41,13 +41,14 @@ function SessionExpiredDialog() {
 
 // 鉴权门:加载中显示启动态,未登录显示登录页,已登录进入外壳路由
 function AppGate() {
-  const { authenticated, loading } = useAuth()
+  const { authenticated, loading, loggingOut } = useAuth()
   const { t } = useTranslation('common')
-  if (loading) {
+  const { t: tAuth } = useTranslation('auth')
+  if (loading || loggingOut) {
     return (
       <div className="grid min-h-screen place-items-center bg-background text-muted-foreground">
         <div className="flex items-center gap-2 text-sm">
-          <Loader2 className="size-4 animate-spin" /> {t('common.loading')}
+          <Loader2 className="size-4 animate-spin" /> {loggingOut ? tAuth('logout.signingOut') : t('common.loading')}
         </div>
       </div>
     )

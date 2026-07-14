@@ -163,6 +163,7 @@ beforeEach(() => {
     user: { username: 'admin' },
     permissions: [],
     loading: false,
+    loggingOut: false,
     authenticated: true,
     can: () => true,
     refresh: vi.fn(),
