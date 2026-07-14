@@ -182,7 +182,7 @@ func (s *Server) handleDeleteUser(c echo.Context) error {
 func (s *Server) validateUserAssignment(role string, clusterIDs []uint) error {
 	role = strings.TrimSpace(role)
 	if role == "" {
-		role = store.UserRoleInspector
+		role = store.UserRoleClusterAdmin
 	}
 	if store.RoleRequiresClusterGrants(role) && len(clusterIDs) == 0 {
 		return echo.NewHTTPError(http.StatusBadRequest, "该角色必须至少授权一个集群")

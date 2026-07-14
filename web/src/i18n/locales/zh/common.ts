@@ -96,7 +96,6 @@ export const zhCommon = {
     role: {
       globalAdmin: '全局管理员',
       clusterAdmin: '集群管理员',
-      inspector: '巡检执行者',
     },
     userStatus: {
       active: '启用',

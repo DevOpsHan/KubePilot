@@ -118,7 +118,7 @@ func TestUserDefaultPasswordChangeAndLoginAttempts(t *testing.T) {
 	user, err := st.CreateUser(CreateUserInput{
 		Username:   "ops",
 		Email:      "ops@example.com",
-		Role:       UserRoleInspector,
+		Role:       UserRoleClusterAdmin,
 		Status:     UserStatusActive,
 		ExpiresAt:  &expiresAt,
 		ClusterIDs: []uint{cluster.ID},
@@ -169,14 +169,17 @@ func TestUserRolesAndClusterGrants(t *testing.T) {
 	t.Cleanup(func() { _ = st.Close() })
 
 	validRoles := strings.Join(ValidRoles(), ",")
-	if strings.Contains(validRoles, "viewer") || strings.Contains(validRoles, "approver") {
-		t.Fatalf("有效角色集合不应包含已移除的只读观察者或审批人: %s", validRoles)
+	if strings.Contains(validRoles, "viewer") || strings.Contains(validRoles, "approver") || strings.Contains(validRoles, "inspector") {
+		t.Fatalf("有效角色集合不应包含已移除的角色(观察者/审批人/巡检执行者): %s", validRoles)
 	}
 	if _, err := normalizeRole("viewer"); err == nil {
 		t.Fatal("不应允许创建已移除的只读观察者角色")
 	}
 	if _, err := normalizeRole("approver"); err == nil {
 		t.Fatal("不应允许创建已移除的审批人角色")
+	}
+	if _, err := normalizeRole("inspector"); err == nil {
+		t.Fatal("不应允许创建已移除的巡检执行者角色")
 	}
 
 	clusterA, err := st.CreateCluster(CreateClusterInput{Name: "集群 A", Slug: "grant-a", Mode: ClusterModeKubeconfigData})
@@ -245,7 +248,7 @@ func TestUserSoftDeleteAndPurgeAfterRetention(t *testing.T) {
 	user, err := st.CreateUser(CreateUserInput{
 		Username:   "deleted-user",
 		Password:   "user-secret",
-		Role:       UserRoleInspector,
+		Role:       UserRoleClusterAdmin,
 		Status:     UserStatusActive,
 		ClusterIDs: []uint{cluster.ID},
 	})
@@ -299,8 +302,6 @@ func TestRolePermissions(t *testing.T) {
 		{UserRoleClusterAdmin, PermissionApproveRemediation, true},
 		{UserRoleClusterAdmin, PermissionManageUsers, false},
 		{UserRoleClusterAdmin, PermissionManageModels, false},
-		{UserRoleInspector, PermissionRunInspect, true},
-		{UserRoleInspector, PermissionManageClusters, false},
 		{"viewer", PermissionViewClusters, false},
 		{"approver", PermissionApproveRemediation, false},
 	}

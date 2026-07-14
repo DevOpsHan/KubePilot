@@ -39,11 +39,9 @@ func TestChatAnswersAuthenticatedIdentityWithoutCallingModel(t *testing.T) {
 	}{
 		{username: "identity-admin", role: store.UserRoleGlobalAdmin, message: "我是谁？", expected: []string{"系统管理员", "平台系统最高权限者"}},
 		{username: "identity-cluster-admin", role: store.UserRoleClusterAdmin, message: "我是谁？", expected: []string{"集群管理员", "已授权集群"}},
-		{username: "identity-inspector", role: store.UserRoleInspector, message: "我是谁？", expected: []string{"巡检执行者", "运行巡检"}},
 		{username: "identity-admin-en", role: store.UserRoleGlobalAdmin, message: "Who am I?", expected: []string{"System Administrator", "highest-privilege"}},
 		{username: "identity-admin-polite", role: store.UserRoleGlobalAdmin, message: "请问我是谁？", expected: []string{"系统管理员", "平台系统最高权限者"}},
 		{username: "identity-cluster-admin-en", role: store.UserRoleClusterAdmin, message: "What's my role?", expected: []string{"Cluster Administrator", "authorized clusters"}},
-		{username: "identity-inspector-en", role: store.UserRoleInspector, message: "What are my permissions?", expected: []string{"Inspection Operator", "run inspections"}},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.username, func(t *testing.T) {
@@ -131,7 +129,7 @@ func TestChatInjectsAuthenticatedIdentityIntoSystemPrompt(t *testing.T) {
 			t.Fatalf("系统提示缺少认证身份 %q: %s", expected, systemPrompt)
 		}
 	}
-	if strings.Contains(systemPrompt, "forged-user") || strings.Contains(systemPrompt, store.UserRoleInspector) {
+	if strings.Contains(systemPrompt, "forged-user") || strings.Contains(systemPrompt, "inspector") {
 		t.Fatalf("系统提示不应采用请求体伪造身份: %s", systemPrompt)
 	}
 }
@@ -226,7 +224,7 @@ func TestChatRejectsUnauthorizedRequestCluster(t *testing.T) {
 		Username:               "scoped-inspector",
 		DisplayName:            "范围巡检员",
 		Password:               "secret",
-		Role:                   store.UserRoleInspector,
+		Role:                   store.UserRoleClusterAdmin,
 		Status:                 store.UserStatusActive,
 		PasswordChangeRequired: boolPtr(false),
 		ClusterIDs:             []uint{allowedCluster.ID},
@@ -269,7 +267,7 @@ func TestChatToolCallsCannotEscapeAuthenticatedClusterScope(t *testing.T) {
 		Username:               "tool-scoped-inspector",
 		DisplayName:            "工具范围巡检员",
 		Password:               "secret",
-		Role:                   store.UserRoleInspector,
+		Role:                   store.UserRoleClusterAdmin,
 		Status:                 store.UserStatusActive,
 		PasswordChangeRequired: boolPtr(false),
 		ClusterIDs:             []uint{allowedCluster.ID},

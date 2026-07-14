@@ -96,7 +96,7 @@ func TestAuthPasswordChangeRequiredFlow(t *testing.T) {
 	cluster := createServerTestCluster(t, st, "auth-password")
 	user, err := st.CreateUser(store.CreateUserInput{
 		Username:   "ops",
-		Role:       store.UserRoleInspector,
+		Role:       store.UserRoleClusterAdmin,
 		Status:     store.UserStatusActive,
 		ClusterIDs: []uint{cluster.ID},
 	})
@@ -152,7 +152,7 @@ func TestExpiredUserCannotLogin(t *testing.T) {
 	if _, err := st.CreateUser(store.CreateUserInput{
 		Username:   "expired",
 		Password:   "secret",
-		Role:       store.UserRoleInspector,
+		Role:       store.UserRoleClusterAdmin,
 		Status:     store.UserStatusActive,
 		ExpiresAt:  &expiresAt,
 		ClusterIDs: []uint{cluster.ID},
@@ -182,21 +182,10 @@ func TestProtectedAPIsRequireAuthentication(t *testing.T) {
 	}
 }
 
-func TestApprovalActionsRequireApproverRole(t *testing.T) {
+func TestApprovalActionsRespectClusterGrants(t *testing.T) {
 	st := openServerTestStore(t)
 	clusterA := createServerTestCluster(t, st, "auth-approval-a")
 	clusterB := createServerTestCluster(t, st, "auth-approval-b")
-	inspector, err := st.CreateUser(store.CreateUserInput{
-		Username:               "inspector",
-		Password:               "inspector-secret",
-		Role:                   store.UserRoleInspector,
-		Status:                 store.UserStatusActive,
-		ClusterIDs:             []uint{clusterA.ID},
-		PasswordChangeRequired: boolPtr(false),
-	})
-	if err != nil {
-		t.Fatalf("创建巡检执行者失败: %v", err)
-	}
 	clusterAdmin, err := st.CreateUser(store.CreateUserInput{
 		Username:               "cluster-admin",
 		Password:               "admin-secret",
@@ -230,14 +219,6 @@ func TestApprovalActionsRequireApproverRole(t *testing.T) {
 	}
 	srv := NewServer(nil, nil, nil, st, nil, nil, clusterA.ID, nil)
 
-	inspectorReq := httptest.NewRequest(http.MethodPost, "/api/approvals/"+strconvUint(ticket.ID)+"/reject", nil)
-	attachServerTestSession(t, st, inspectorReq, inspector.ID)
-	inspectorRec := httptest.NewRecorder()
-	srv.Echo().ServeHTTP(inspectorRec, inspectorReq)
-	if inspectorRec.Code != http.StatusForbidden {
-		t.Fatalf("巡检执行者不应能审批: code=%d body=%s", inspectorRec.Code, inspectorRec.Body.String())
-	}
-
 	clusterAdminReq := httptest.NewRequest(http.MethodPost, "/api/approvals/"+strconvUint(ticket.ID)+"/reject", nil)
 	attachServerTestSession(t, st, clusterAdminReq, clusterAdmin.ID)
 	clusterAdminRec := httptest.NewRecorder()
@@ -262,38 +243,39 @@ func TestApprovalActionsRequireApproverRole(t *testing.T) {
 	}
 }
 
-func TestViewerCannotUsePrivilegedWriteAPIs(t *testing.T) {
+func TestClusterAdminCannotUseGlobalAdminAPIs(t *testing.T) {
 	st := openServerTestStore(t)
-	cluster := createServerTestCluster(t, st, "viewer-permission")
-	inspector, err := st.CreateUser(store.CreateUserInput{
-		Username:               "readonly",
-		Password:               "viewer-secret",
-		Role:                   store.UserRoleInspector,
+	cluster := createServerTestCluster(t, st, "cluster-admin-scope")
+	clusterAdmin, err := st.CreateUser(store.CreateUserInput{
+		Username:               "cluster-admin",
+		Password:               "admin-secret",
+		Role:                   store.UserRoleClusterAdmin,
 		Status:                 store.UserStatusActive,
 		ClusterIDs:             []uint{cluster.ID},
 		PasswordChangeRequired: boolPtr(false),
 	})
 	if err != nil {
-		t.Fatalf("创建巡检执行者失败: %v", err)
+		t.Fatalf("创建集群管理员失败: %v", err)
 	}
 	srv := NewServer(nil, nil, nil, st, nil, nil, cluster.ID, nil)
 
+	// 全局管理员专属接口:模型管理(models:manage)、用户管理(users:manage),集群管理员均无权
 	tests := []struct {
 		method string
 		target string
 		body   string
 	}{
-		{http.MethodPost, "/api/clusters/" + strconvUint(cluster.ID) + "/sync", ""},
 		{http.MethodPost, "/api/models", `{"name":"m","provider":"openai","model_name":"m","api_key":"k"}`},
+		{http.MethodGet, "/api/users", ""},
 	}
 	for _, tt := range tests {
 		req := httptest.NewRequest(tt.method, tt.target, bytes.NewReader([]byte(tt.body)))
 		req.Header.Set("Content-Type", "application/json")
-		attachServerTestSession(t, st, req, inspector.ID)
+		attachServerTestSession(t, st, req, clusterAdmin.ID)
 		rec := httptest.NewRecorder()
 		srv.Echo().ServeHTTP(rec, req)
 		if rec.Code != http.StatusForbidden {
-			t.Fatalf("巡检执行者访问 %s 应返回 403: code=%d body=%s", tt.target, rec.Code, rec.Body.String())
+			t.Fatalf("集群管理员访问 %s 应返回 403: code=%d body=%s", tt.target, rec.Code, rec.Body.String())
 		}
 	}
 }

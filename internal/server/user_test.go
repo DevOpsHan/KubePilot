@@ -21,7 +21,7 @@ func TestUserManagementCreateEditResetAndDelete(t *testing.T) {
 		"username":"ops",
 		"display_name":"运维同学",
 		"email":"ops@example.com",
-		"role":"inspector",
+		"role":"cluster_admin",
 		"expires_in":"3m",
 		"cluster_ids":[`+strconvUint(cluster.ID)+`]
 	}`)))

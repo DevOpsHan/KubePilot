@@ -18,7 +18,6 @@ import (
 const (
 	UserRoleGlobalAdmin  = "global_admin"
 	UserRoleClusterAdmin = "cluster_admin"
-	UserRoleInspector    = "inspector"
 )
 
 const (
@@ -102,11 +101,6 @@ func RoleHasPermission(role, permission string) bool {
 			PermissionViewAlerts:         {},
 			PermissionManageAlerts:       {},
 		},
-		UserRoleInspector: {
-			PermissionViewClusters: {},
-			PermissionRunInspect:   {},
-			PermissionViewAlerts:   {},
-		},
 	}
 	allowed, ok := permissions[role]
 	if !ok {
@@ -117,13 +111,13 @@ func RoleHasPermission(role, permission string) bool {
 }
 
 func ValidRoles() []string {
-	return []string{UserRoleGlobalAdmin, UserRoleClusterAdmin, UserRoleInspector}
+	return []string{UserRoleGlobalAdmin, UserRoleClusterAdmin}
 }
 
 func normalizeRole(role string) (string, error) {
 	role = strings.TrimSpace(role)
 	if role == "" {
-		return UserRoleInspector, nil
+		return UserRoleClusterAdmin, nil
 	}
 	for _, item := range ValidRoles() {
 		if role == item {
@@ -374,7 +368,7 @@ func (s *Store) countUserClusterGrants(tx *gorm.DB, userID uint) (int64, error) 
 }
 
 func RoleRequiresClusterGrants(role string) bool {
-	return role == UserRoleClusterAdmin || role == UserRoleInspector
+	return role == UserRoleClusterAdmin
 }
 
 func roleRequiresClusterGrants(role string) bool {

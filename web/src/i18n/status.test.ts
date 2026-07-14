@@ -44,7 +44,6 @@ const englishStatuses: ReadonlyArray<{
   { category: 'verification', value: 'skipped', expected: 'Skipped' },
   { category: 'role', value: 'global_admin', expected: 'Global admin' },
   { category: 'role', value: 'cluster_admin', expected: 'Cluster admin' },
-  { category: 'role', value: 'inspector', expected: 'Inspector' },
   { category: 'userStatus', value: 'active', expected: 'Active' },
   { category: 'userStatus', value: 'disabled', expected: 'Disabled' },
   { category: 'model', value: 'ready', expected: 'Ready' },

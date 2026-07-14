@@ -55,7 +55,6 @@ const statusTranslationKeys = {
   role: {
     global_admin: 'status.role.globalAdmin',
     cluster_admin: 'status.role.clusterAdmin',
-    inspector: 'status.role.inspector',
   },
   userStatus: {
     active: 'status.userStatus.active',

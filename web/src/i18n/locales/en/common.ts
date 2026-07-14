@@ -99,7 +99,6 @@ export const enCommon = {
     role: {
       globalAdmin: 'Global admin',
       clusterAdmin: 'Cluster admin',
-      inspector: 'Inspector',
     },
     userStatus: {
       active: 'Active',

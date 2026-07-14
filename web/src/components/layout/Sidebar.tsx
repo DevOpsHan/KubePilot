@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { LogOut, ChevronDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -34,6 +34,11 @@ export function Sidebar({ alertCount, pendingCount }: { alertCount: number; pend
   const { pathname } = useLocation()
 
   const [collapsed, setCollapsed] = useState<Record<CollapsibleNavKey, boolean>>(() => ({ ...DEFAULT_COLLAPSED }))
+
+  // 进入首页时运维中心回到折叠状态(即刚登录时的样子)。
+  useEffect(() => {
+    if (pathname === '/home') setCollapsed({ ...DEFAULT_COLLAPSED })
+  }, [pathname])
 
   // 退出前先弹确认框,确认后再走退出流程(带加载态与成功提示)。
   async function handleLogout() {

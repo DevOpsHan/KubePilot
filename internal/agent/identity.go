@@ -120,13 +120,6 @@ func identityForRole(role string) roleIdentity {
 			summaryZH: "您可以管理已授权集群，并处理其告警、巡检、审批和受控修复。",
 			summaryEN: "You can manage authorized clusters and handle their alerts, inspections, approvals, and controlled remediation.",
 		}
-	case store.UserRoleInspector:
-		return roleIdentity{
-			labelZH:   "巡检执行者",
-			labelEN:   "Inspection Operator",
-			summaryZH: "您可以查看已授权集群、运行巡检并查看告警，不具备集群配置或全局管理权限。",
-			summaryEN: "You can view authorized clusters, run inspections, and review alerts, without cluster configuration or global administration permissions.",
-		}
 	default:
 		return roleIdentity{
 			labelZH:   "未知角色",

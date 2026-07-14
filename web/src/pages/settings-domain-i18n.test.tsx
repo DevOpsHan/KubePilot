@@ -243,7 +243,7 @@ beforeEach(() => {
   })
   vi.mocked(listUsers).mockResolvedValue({
     users: [userRecord],
-    roles: ['global_admin', 'cluster_admin', 'inspector'],
+    roles: ['global_admin', 'cluster_admin'],
   })
   vi.mocked(createUser).mockResolvedValue({ user: userRecord })
   vi.mocked(updateUser).mockResolvedValue({ user: userRecord })

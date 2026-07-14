@@ -37,7 +37,7 @@ The sidebar and command palette are permission-aware. Users see only the entries
 
 ### Navigation
 
-- **Home** (`/home`): the default landing page after sign-in, a centered welcome with a hand-drawn animated brand-bolt illustration (orbiting rings, pulsing glow) that echoes the login page's brand aurora background; its entry sits at the very top of the sidebar.
+- **Home** (`/home`): the default landing page after sign-in, a centered welcome with a hand-drawn animated brand-bolt illustration (orbiting rings, pulsing glow) that echoes the login page's brand aurora background; its entry sits at the very top of the sidebar, and opening it collapses the Operations group back to the just-signed-in navigation state.
 - **Overview** (`/dashboard`): summarizes connected and healthy clusters, pending approvals, active alerts, synchronization timing, recent activity, and the active AI model.
 - **AI Chat** (`/chat`): accepts natural-language operations questions, queries cluster resources and status, reads Pod logs and live evidence, runs read-only diagnostic commands inside containers, starts inspections, and returns evidence-backed diagnosis and remediation guidance.
 - **Clusters** (`/clusters`): imports and manages kubeconfig-based clusters, runs synchronization, and continuously probes connectivity so a disconnected cluster is downgraded immediately. The cluster detail view is a single resource browser: a **Primary information** group (basic information, node status, synchronization status, namespaces, events, CRDs) sits above the grouped resources (workloads, network, configuration, storage), each filtered by namespace and name and refreshable on demand. Any object opens a side panel with its details and live YAML, and Pods additionally expose live logs and an interactive terminal (exec).
@@ -233,9 +233,9 @@ Health checks in the Compose file also use `localhost` or `127.0.0.1` to access 
 
 ### Users and Permissions
 
-- Provide global administrator, cluster administrator, and inspection operator roles.
+- Provide two roles: global administrator with the platform's highest privileges, and cluster administrator with full authority over granted clusters (including alerts, inspections, approvals, and controlled remediation).
 - Restrict user and role management to global administrators; cluster administrators focus on operating their granted clusters and do not manage users.
-- Grant non-global roles access to one or more clusters.
+- Grant cluster administrators access to one or more clusters.
 - Support user expiration, disabling, mandatory first-login password changes, password resets, and retained soft deletion.
 - Expire login sessions after 30 minutes of inactivity and restart the idle window after each successful authenticated request.
 

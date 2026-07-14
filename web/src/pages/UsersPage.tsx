@@ -33,7 +33,7 @@ const expiryOptions = [
   { value: '3y', key: 'users.expiry.threeYears' },
 ] as const
 
-const roleNeedsClusters = (r: string) => r === 'cluster_admin' || r === 'inspector'
+const roleNeedsClusters = (r: string) => r === 'cluster_admin'
 const numericIds = (vals: string[]) => vals.map(Number).filter((v) => v > 0)
 const userClusterIds = (u: any): number[] => (u.cluster_grants || []).map((g: any) => Number(g.cluster_id)).filter((v: number) => v > 0)
 const userCode = (u: any) => `USR-${String(u.id || '').padStart(4, '0')}`
@@ -91,13 +91,13 @@ export function UsersPage() {
   const [editing, setEditing] = useState<any>(null)
   const [formError, setFormError] = useState<UserFormError | null>(null)
 
-  const [form, setForm] = useState({ username: '', displayName: '', email: '', role: 'inspector', expiresIn: '3m', clusterIds: [] as string[] })
+  const [form, setForm] = useState({ username: '', displayName: '', email: '', role: 'cluster_admin', expiresIn: '3m', clusterIds: [] as string[] })
   const [editForm, setEditForm] = useState({ displayName: '', email: '', expiresAt: '', clusterIds: [] as string[] })
 
   const language = normalizeLanguage(i18n.resolvedLanguage ?? i18n.language)
   const localization = useRef({ tSettings, tCommon, language })
   localization.current = { tSettings, tCommon, language }
-  const roleOptions = roles.length ? roles : ['global_admin', 'cluster_admin', 'inspector']
+  const roleOptions = roles.length ? roles : ['global_admin', 'cluster_admin']
   const formNeedsClusters = roleNeedsClusters(form.role)
   const editingNeedsClusters = editing && roleNeedsClusters(editing.role)
   const roleText = (role: string) => localizeStatus(tCommon, 'role', role)
@@ -128,7 +128,7 @@ export function UsersPage() {
 
   function openCreate() {
     setFormError(null)
-    setForm({ username: '', displayName: '', email: '', role: 'inspector', expiresIn: '3m', clusterIds: [] })
+    setForm({ username: '', displayName: '', email: '', role: 'cluster_admin', expiresIn: '3m', clusterIds: [] })
     setCreating(true)
   }
   function toggleFormCluster(id: string) {

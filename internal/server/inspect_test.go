@@ -105,7 +105,7 @@ func TestInspectReportsRespectClusterAuthorization(t *testing.T) {
 	inspector, err := st.CreateUser(store.CreateUserInput{
 		Username:               "reports-inspector",
 		Password:               "inspector-secret",
-		Role:                   store.UserRoleInspector,
+		Role:                   store.UserRoleClusterAdmin,
 		Status:                 store.UserStatusActive,
 		ClusterIDs:             []uint{clusterA.ID},
 		PasswordChangeRequired: boolPtr(false),
