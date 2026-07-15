@@ -42,7 +42,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 	if db, err := store.Open(cfg.Database.Driver, cfg.Database.DSN); err != nil {
 		logger.Warn("数据库初始化失败,巡检/审批将不可用", zap.Error(err))
 	} else {
-		logger.Info("数据库就绪", zap.String("driver", cfg.Database.Driver), zap.String("dsn", cfg.Database.DSN))
+		logger.Info("数据库就绪", zap.String("driver", cfg.Database.Driver))
 		st = db
 	}
 
