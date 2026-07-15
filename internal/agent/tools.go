@@ -140,8 +140,8 @@ func Definitions() []ai.Tool {
 		}},
 		{Type: "function", Function: ai.FunctionDef{
 			Name: "exec_diagnostic",
-			Description: "在 Pod 容器内执行【只读】诊断命令并返回输出。仅允许白名单只读命令(如 cat/ls/env/ps/df/cat /etc/resolv.conf/nslookup 等)," +
-				"禁止任何写操作、shell 元字符、外联命令。用于进一步定位配置/环境/DNS 等问题。必须明确指定单个集群。",
+			Description: "在 Pod 容器内执行【只读】诊断命令并返回输出。仅允许白名单只读命令(如 cat/ls/env/ps/df/cat /etc/resolv.conf/nslookup kubernetes.default 等)," +
+				"禁止任何写操作、shell 元字符、任意网络外联；DNS 只允许固定 Kubernetes 健康探针。用于进一步定位配置/环境/DNS 等问题。必须明确指定单个集群。",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

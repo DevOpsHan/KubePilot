@@ -28,8 +28,7 @@ var diagnosticCommandWhitelist = map[string]struct{}{
 	"uname":    {}, // 内核信息
 	"uptime":   {}, // 运行时长
 	"date":     {}, // 时间
-	"nslookup": {}, // DNS 解析(排查服务发现,不发业务数据)
-	"getent":   {}, // NSS 查询(hosts/services 等)
+	"nslookup": {}, // 仅允许固定 Kubernetes DNS 探针目标,避免任意 DNS 外带
 	"grep":     {}, // 过滤(配合 cat 常用;本身只读)
 	"find":     {}, // 查找文件(只列不改)
 	"echo":     {}, // 回显(常用于查看变量)
@@ -78,6 +77,22 @@ var safeHostnameArgs = map[string]struct{}{
 
 var safeMountArgs = map[string]struct{}{
 	"-l": {}, "--show-labels": {}, "-v": {}, "--verbose": {}, "-lv": {}, "-vl": {},
+}
+
+var safeDNSProbeTargets = map[string]struct{}{
+	"kubernetes.default":                   {},
+	"kubernetes.default.svc":               {},
+	"kubernetes.default.svc.cluster.local": {},
+}
+
+const safeSSShortOptions = "460tudwxlaempTiOonbsHhV"
+
+var safeSSLongArgs = map[string]struct{}{
+	"--ipv4": {}, "--ipv6": {}, "--packet": {}, "--tcp": {}, "--udp": {},
+	"--dccp": {}, "--raw": {}, "--unix": {}, "--listening": {}, "--all": {},
+	"--extended": {}, "--memory": {}, "--processes": {}, "--threads": {},
+	"--info": {}, "--oneline": {}, "--options": {}, "--numeric": {}, "--bpf": {},
+	"--summary": {}, "--no-header": {}, "--help": {}, "--version": {},
 }
 
 // ValidateDiagnosticCommand 校验 AI 诊断命令是否为白名单内的只读命令。
@@ -148,23 +163,15 @@ func ValidateDiagnosticCommand(command []string) error {
 			}
 		}
 	case "ss":
-		for _, arg := range command[1:] {
-			trimmed := strings.TrimSpace(arg)
-			if matchesLongOption(strings.ToLower(trimmed), "--kill") ||
-				strings.HasPrefix(trimmed, "-") && !strings.HasPrefix(trimmed, "--") && strings.Contains(strings.TrimPrefix(trimmed, "-"), "K") {
-				return fmt.Errorf("ss 仅允许查看 socket,拒绝销毁连接的参数:%q", arg)
-			}
+		if err := validateReadOnlySSArgs(command[1:]); err != nil {
+			return err
 		}
 	case "nslookup":
-		hasTarget := false
-		for _, arg := range command[1:] {
-			if trimmed := strings.TrimSpace(arg); trimmed != "" && !strings.HasPrefix(trimmed, "-") {
-				hasTarget = true
-				break
-			}
+		if len(command) != 2 {
+			return fmt.Errorf("nslookup 仅允许查询一个固定 Kubernetes DNS 探针目标,不允许交互模式、选项或自定义 DNS 服务器")
 		}
-		if !hasTarget {
-			return fmt.Errorf("nslookup 必须指定查询目标,不允许进入交互模式")
+		if _, ok := safeDNSProbeTargets[command[1]]; !ok {
+			return fmt.Errorf("nslookup 仅允许规范形式的固定 Kubernetes DNS 探针目标,拒绝任意域名、地址或变体:%q", command[1])
 		}
 	case "uniq":
 		if err := validateReadOnlyUniqArgs(command[1:]); err != nil {
@@ -173,6 +180,29 @@ func ValidateDiagnosticCommand(command []string) error {
 	case "ip":
 		if err := validateReadOnlyIPArgs(command[1:]); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validateReadOnlySSArgs(args []string) error {
+	for _, arg := range args {
+		if arg == "" || arg != strings.TrimSpace(arg) {
+			return fmt.Errorf("ss 仅允许规范形式的纯查看选项,拒绝空白或空参数:%q", arg)
+		}
+		if strings.HasPrefix(arg, "--") {
+			if _, ok := safeSSLongArgs[arg]; !ok {
+				return fmt.Errorf("ss 仅允许不会解析目标、读取过滤器、写文件或持续监听的纯查看选项:%q", arg)
+			}
+			continue
+		}
+		if !strings.HasPrefix(arg, "-") || len(arg) == 1 {
+			return fmt.Errorf("ss 不允许地址、端口或表达式过滤操作数,拒绝:%q", arg)
+		}
+		for _, option := range arg[1:] {
+			if !strings.ContainsRune(safeSSShortOptions, option) {
+				return fmt.Errorf("ss 仅允许不会解析目标、读取过滤器、写文件或持续监听的纯查看选项:%q", arg)
+			}
 		}
 	}
 	return nil
