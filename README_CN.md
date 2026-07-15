@@ -31,7 +31,13 @@ KubePilot 是面向 Kubernetes 多集群场景的智能运维平台。它不止�
 
 ## 界面展示
 
-![KubePilot 中文运维总览](docs/images/kubepilot-overview-zh-CN.png)
+### 登录页
+
+![KubePilot 中文登录页](docs/images/kubepilot-login-zh-CN.png)
+
+### 首页
+
+![KubePilot 中文首页](docs/images/kubepilot-home-zh-CN.png)
 
 侧边导航和命令面板会根据当前用户的权限动态展示。用户只能看到有权访问的入口，直接访问无权限路由时会返回**首页**。
 

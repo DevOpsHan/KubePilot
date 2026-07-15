@@ -31,7 +31,13 @@ KubePilot is an intelligent operations platform for multi-cluster Kubernetes env
 
 ## Interface Preview
 
-![KubePilot operations overview in English](docs/images/kubepilot-overview-en.png)
+### Sign in
+
+![KubePilot sign-in page in English](docs/images/kubepilot-login-en.png)
+
+### Home
+
+![KubePilot home page in English](docs/images/kubepilot-home-en.png)
 
 The sidebar and command palette are permission-aware. Users see only the entries they are allowed to access, and direct access to a restricted route returns them to **Home**.
 
