@@ -394,6 +394,121 @@ func TestTouchAuthSessionRefreshesExpiry(t *testing.T) {
 	}
 }
 
+func TestTouchAuthSessionAcceptsActiveSessionWhenDriverReportsNoChangedRows(t *testing.T) {
+	st, err := Open("sqlite", filepath.Join(t.TempDir(), "aiops.db"))
+	if err != nil {
+		t.Fatalf("打开测试数据库失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	user, err := st.CreateUser(CreateUserInput{
+		Username: "mysql-noop-touch", Password: "admin-secret",
+		Role: UserRoleGlobalAdmin, Status: UserStatusActive, PasswordChangeRequired: boolValue(false),
+	})
+	if err != nil {
+		t.Fatalf("创建用户失败: %v", err)
+	}
+	token, _, err := st.CreateAuthSession(user, time.Minute)
+	if err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+
+	var forced atomic.Bool
+	const callbackName = "test:simulate_mysql_noop_update"
+	if err := st.db.Callback().Update().After("gorm:update").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Schema != nil && tx.Statement.Schema.Name == "AuthSession" {
+			forced.Store(true)
+			tx.RowsAffected = 0
+		}
+	}); err != nil {
+		t.Fatalf("注册 MySQL 同值更新模拟回调失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.db.Callback().Update().Remove(callbackName) })
+
+	sessionUser, touched, err := st.TouchAuthSession(token, 30*time.Minute)
+	if !forced.Load() {
+		t.Fatal("测试未触发会话续期 UPDATE")
+	}
+	if err != nil {
+		t.Fatalf("有效会话的幂等续期不应被误判为失效: %v", err)
+	}
+	if sessionUser.ID != user.ID || touched == nil || time.Until(touched.ExpiresAt) < 29*time.Minute {
+		t.Fatalf("幂等续期应返回有效用户和实际过期时间: user=%+v session=%+v", sessionUser, touched)
+	}
+}
+
+func TestRefreshAuthSessionExpiryDoesNotShortenNewerConcurrentExpiry(t *testing.T) {
+	st, err := Open("sqlite", filepath.Join(t.TempDir(), "aiops.db"))
+	if err != nil {
+		t.Fatalf("打开测试数据库失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	user, err := st.CreateUser(CreateUserInput{
+		Username: "monotonic-session-expiry", Password: "admin-secret",
+		Role: UserRoleGlobalAdmin, Status: UserStatusActive, PasswordChangeRequired: boolValue(false),
+	})
+	if err != nil {
+		t.Fatalf("创建用户失败: %v", err)
+	}
+	_, session, err := st.CreateAuthSession(user, time.Minute)
+	if err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+
+	now := time.Now()
+	newerExpiry := now.Add(45 * time.Minute).Truncate(time.Millisecond)
+	if err := st.db.Model(&AuthSession{}).Where("id = ?", session.ID).
+		UpdateColumn("expires_at", newerExpiry).Error; err != nil {
+		t.Fatalf("准备较新的并发续期结果失败: %v", err)
+	}
+	olderExpiry := newerExpiry.Add(-5 * time.Minute)
+	effectiveExpiry, err := refreshAuthSessionExpiry(st.db, session.ID, now, olderExpiry)
+	if err != nil {
+		t.Fatalf("较旧的并发续期请求不应失败: %v", err)
+	}
+	if !effectiveExpiry.Equal(newerExpiry) {
+		t.Fatalf("较旧请求不得缩短会话有效期: got=%s want=%s", effectiveExpiry, newerExpiry)
+	}
+
+	var persisted AuthSession
+	if err := st.db.First(&persisted, session.ID).Error; err != nil {
+		t.Fatalf("读取会话最终状态失败: %v", err)
+	}
+	if !persisted.ExpiresAt.Equal(newerExpiry) {
+		t.Fatalf("数据库中的较新有效期不得被覆盖: got=%s want=%s", persisted.ExpiresAt, newerExpiry)
+	}
+}
+
+func TestRefreshAuthSessionExpiryRejectsExpiredSession(t *testing.T) {
+	st, err := Open("sqlite", filepath.Join(t.TempDir(), "aiops.db"))
+	if err != nil {
+		t.Fatalf("打开测试数据库失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	user, err := st.CreateUser(CreateUserInput{
+		Username: "expired-session-touch", Password: "admin-secret",
+		Role: UserRoleGlobalAdmin, Status: UserStatusActive, PasswordChangeRequired: boolValue(false),
+	})
+	if err != nil {
+		t.Fatalf("创建用户失败: %v", err)
+	}
+	_, session, err := st.CreateAuthSession(user, time.Minute)
+	if err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+
+	now := time.Now()
+	if err := st.db.Model(&AuthSession{}).Where("id = ?", session.ID).
+		UpdateColumn("expires_at", now.Add(-time.Second)).Error; err != nil {
+		t.Fatalf("准备过期会话失败: %v", err)
+	}
+	if _, err := refreshAuthSessionExpiry(st.db, session.ID, now, now.Add(30*time.Minute)); !errors.Is(err, ErrInvalidSession) {
+		t.Fatalf("已过期会话不得通过零行复查分支续期: %v", err)
+	}
+}
+
 func TestStaleAuthSessionCannotReviveRevokedToken(t *testing.T) {
 	st, err := Open("sqlite", filepath.Join(t.TempDir(), "aiops.db"))
 	if err != nil {
@@ -421,7 +536,7 @@ func TestStaleAuthSessionCannotReviveRevokedToken(t *testing.T) {
 	}
 
 	now := time.Now()
-	err = refreshAuthSessionExpiry(st.db, stale.ID, now, now.Add(10*time.Minute))
+	_, err = refreshAuthSessionExpiry(st.db, stale.ID, now, now.Add(10*time.Minute))
 	if !errors.Is(err, ErrInvalidSession) {
 		t.Fatalf("旧会话快照不得续期已撤销会话: %v", err)
 	}

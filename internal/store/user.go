@@ -772,24 +772,41 @@ func (s *Store) TouchAuthSession(token string, ttl time.Duration) (*User, *AuthS
 		return nil, nil, err
 	}
 	newExpiry := now.Add(ttl)
-	if err := refreshAuthSessionExpiry(s.db, session.ID, now, newExpiry); err != nil {
+	effectiveExpiry, err := refreshAuthSessionExpiry(s.db, session.ID, now, newExpiry)
+	if err != nil {
 		return nil, nil, err
 	}
-	session.ExpiresAt = newExpiry
+	session.ExpiresAt = effectiveExpiry
 	return user, &session, nil
 }
 
-func refreshAuthSessionExpiry(db *gorm.DB, sessionID uint, now, expiresAt time.Time) error {
+func refreshAuthSessionExpiry(db *gorm.DB, sessionID uint, now, expiresAt time.Time) (time.Time, error) {
 	result := db.Model(&AuthSession{}).
-		Where("id = ? AND revoked_at IS NULL AND expires_at > ?", sessionID, now).
+		Where("id = ? AND revoked_at IS NULL AND expires_at > ? AND expires_at < ?", sessionID, now, expiresAt).
 		UpdateColumn("expires_at", expiresAt)
 	if result.Error != nil {
-		return result.Error
+		return time.Time{}, result.Error
 	}
-	if result.RowsAffected != 1 {
-		return ErrInvalidSession
+	if result.RowsAffected == 1 {
+		return expiresAt, nil
 	}
-	return nil
+	if result.RowsAffected != 0 {
+		return time.Time{}, ErrInvalidSession
+	}
+
+	// MySQL 默认只统计实际变化行数。同毫秒并发续期写入 DATETIME(3) 同值时会返回 0，
+	// 此时必须复查会话状态，不能把仍有效的幂等续期误判为登录失效。
+	var active AuthSession
+	err := db.Select("id", "expires_at").
+		Where("id = ? AND revoked_at IS NULL AND expires_at > ?", sessionID, now).
+		First(&active).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return time.Time{}, ErrInvalidSession
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return active.ExpiresAt, nil
 }
 
 func (s *Store) RevokeAuthSession(token string) error {
