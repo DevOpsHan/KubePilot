@@ -7,7 +7,7 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/labstack/echo/v4 v4.15.4
-	github.com/redis/go-redis/v9 v9.21.0
+	github.com/redis/go-redis/v9 v9.22.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.54.0
 	gopkg.in/yaml.v3 v3.0.1
